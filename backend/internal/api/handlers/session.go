@@ -167,20 +167,39 @@ func (h *SessionHandler) JoinSession(c *gin.Context) {
 	}
 
 	participants, _ := session["participants"].(primitive.A)
+	deduped := dedupeParticipants(participants)
+	if len(deduped) < len(participants) {
+		_, _ = h.db.Sessions().UpdateOne(
+			context.TODO(),
+			bson.M{"_id": objectID},
+			bson.M{"$set": bson.M{"participants": deduped, "updatedAt": time.Now()}},
+		)
+		participants = deduped
+	}
+
+	uid := userID.(primitive.ObjectID)
+	if userInParticipants(participants, uid) {
+		session["participants"] = deduped
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Already in session",
+			"session": h.enrichSession(session),
+		})
+		return
+	}
+
 	max := sessionMaxParticipants(session)
-	if max > 0 && len(participants) >= max {
+	if max > 0 && len(deduped) >= max {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Session full"})
 		return
 	}
 
-	uid := userID.(primitive.ObjectID)
 	username := h.lookupUsername(uid)
 
 	_, err = h.db.Sessions().UpdateOne(
 		context.TODO(),
 		bson.M{"_id": objectID},
 		bson.M{
-			"$addToSet": bson.M{
+			"$push": bson.M{
 				"participants": bson.M{
 					"userId":   uid,
 					"username": username,
@@ -196,7 +215,21 @@ func (h *SessionHandler) JoinSession(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Joined session successfully"})
+	var updated bson.M
+	if err := h.db.Sessions().FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&updated); err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "Joined session successfully"})
+		return
+	}
+	joinMsg, _ := json.Marshal(gin.H{
+		"type":    "system",
+		"payload": gin.H{"event": "participants_updated"},
+	})
+	h.wsHub.Broadcast(sessionID, joinMsg)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Joined session successfully",
+		"session": h.enrichSession(updated),
+	})
 }
 
 func (h *SessionHandler) LeaveSession(c *gin.Context) {
@@ -213,15 +246,29 @@ func (h *SessionHandler) LeaveSession(c *gin.Context) {
 		return
 	}
 
-	// Remove user from session participants
+	var session bson.M
+	if err := h.db.Sessions().FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&session); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
+		return
+	}
+
+	uid := userID.(primitive.ObjectID)
+	hostID, _ := session["hostId"].(primitive.ObjectID)
+	isHost := uid == hostID
+
+	setFields := bson.M{"updatedAt": time.Now()}
+	if isHost {
+		setFields["isActive"] = false
+	}
+
 	_, err = h.db.Sessions().UpdateOne(
 		context.TODO(),
 		bson.M{"_id": objectID},
 		bson.M{
 			"$pull": bson.M{
-				"participants": bson.M{"userId": userID},
+				"participants": bson.M{"userId": uid},
 			},
-			"$set": bson.M{"updatedAt": time.Now()},
+			"$set": setFields,
 		},
 	)
 	if err != nil {
@@ -229,7 +276,30 @@ func (h *SessionHandler) LeaveSession(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Left session successfully"})
+	username := h.lookupUsername(uid)
+	if isHost {
+		endMsg, _ := json.Marshal(gin.H{
+			"type":     "system",
+			"userId":   uid.Hex(),
+			"username": username,
+			"payload":  gin.H{"event": "session_ended", "text": username + " ended the session"},
+		})
+		h.wsHub.Broadcast(sessionID, endMsg)
+	} else {
+		leaveMsg, _ := json.Marshal(gin.H{
+			"type":     "system",
+			"userId":   uid.Hex(),
+			"username": username,
+			"payload":  gin.H{"event": "leave", "text": username + " left"},
+		})
+		h.wsHub.Broadcast(sessionID, leaveMsg)
+	}
+
+	msg := "Left session successfully"
+	if isHost {
+		msg = "Session ended"
+	}
+	c.JSON(http.StatusOK, gin.H{"message": msg, "ended": isHost})
 }
 
 func (h *SessionHandler) DeleteSession(c *gin.Context) {
@@ -392,6 +462,59 @@ func (h *SessionHandler) lookupUsernameFromHex(userID string) string {
 	return h.lookupUsername(oid)
 }
 
+func participantUserID(doc bson.M) (primitive.ObjectID, bool) {
+	switch v := doc["userId"].(type) {
+	case primitive.ObjectID:
+		return v, true
+	default:
+		return primitive.NilObjectID, false
+	}
+}
+
+func userInParticipants(parts primitive.A, uid primitive.ObjectID) bool {
+	for _, p := range parts {
+		doc, ok := p.(bson.M)
+		if !ok {
+			continue
+		}
+		if id, ok := participantUserID(doc); ok && id == uid {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupeParticipants(parts primitive.A) primitive.A {
+	if len(parts) == 0 {
+		return parts
+	}
+	seen := make(map[primitive.ObjectID]bson.M)
+	order := make([]primitive.ObjectID, 0, len(parts))
+	for _, p := range parts {
+		doc, ok := p.(bson.M)
+		if !ok {
+			continue
+		}
+		uid, ok := participantUserID(doc)
+		if !ok {
+			continue
+		}
+		if _, has := seen[uid]; has {
+			if role, _ := doc["role"].(string); role == "host" {
+				seen[uid] = doc
+			}
+			continue
+		}
+		seen[uid] = doc
+		order = append(order, uid)
+	}
+	out := make(primitive.A, 0, len(order))
+	for _, uid := range order {
+		out = append(out, seen[uid])
+	}
+	return out
+}
+
 func sessionMaxParticipants(session bson.M) int {
 	switch v := session["maxParticipants"].(type) {
 	case int32:
@@ -417,6 +540,7 @@ func (h *SessionHandler) enrichSession(session bson.M) bson.M {
 	}
 
 	if parts, ok := session["participants"].(primitive.A); ok {
+		parts = dedupeParticipants(parts)
 		enriched := make(primitive.A, 0, len(parts))
 		for _, p := range parts {
 			doc, ok := p.(bson.M)

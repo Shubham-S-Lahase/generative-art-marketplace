@@ -22,11 +22,32 @@ const COLOR_PRESETS = [
   ['#2d6a4f', '#52b788', '#d8f3dc'],
 ];
 
+const participantKey = (p) => String(p.userId?.$oid ?? p.userId ?? '');
+
+const isUserParticipant = (session, user) => {
+  if (!session || !user) return false;
+  const uid = String(user.id ?? user._id ?? '');
+  return session.participants.some((p) => participantKey(p) === uid);
+};
+
+const dedupeParticipants = (participants) => {
+  const byId = new Map();
+  for (const p of participants) {
+    const key = participantKey(p);
+    if (!key) continue;
+    const existing = byId.get(key);
+    if (!existing || p.role === 'host') {
+      byId.set(key, p);
+    }
+  }
+  return Array.from(byId.values());
+};
+
 const normalizeSession = (s) => ({
   ...s,
   id: s.id || s._id,
   hostName: s.hostName || s.hostId,
-  participants: (s.participants || []).map((p) => ({
+  participants: dedupeParticipants(s.participants || []).map((p) => ({
     ...p,
     username: p.username || p.userId,
   })),
@@ -61,6 +82,12 @@ const LiveSessions = () => {
 
   const selectedSession = sessions.find((s) => s.id === selectedSessionId);
 
+  const isSessionHost =
+    selectedSession &&
+    currentUser &&
+    String(selectedSession.hostId?.$oid ?? selectedSession.hostId) ===
+      String(currentUser.id ?? currentUser._id);
+
   const loadSessions = async () => {
     try {
       const data = await api.getSessions();
@@ -75,6 +102,30 @@ const LiveSessions = () => {
   useEffect(() => {
     loadSessions();
   }, []);
+
+  const latestParticipantEvent = useMemo(() => {
+    const m = messages.find(
+      (msg) =>
+        msg.type === 'system' &&
+        ['join', 'leave', 'session_ended', 'participants_updated'].includes(
+          msg.payload?.event as string
+        )
+    );
+    if (!m) return null;
+    return `${m.payload?.event}:${m.userId ?? ''}:${m.payload?.text ?? ''}`;
+  }, [messages]);
+
+  useEffect(() => {
+    if (!latestParticipantEvent) return;
+    const event = latestParticipantEvent.split(':')[0];
+    if (event === 'session_ended') {
+      disconnect();
+      setSelectedSessionId(null);
+      loadSessions();
+      return;
+    }
+    loadSessions();
+  }, [latestParticipantEvent, disconnect]);
 
   const updateSessionParams = useCallback((sessionId, params) => {
     setSessions((prev) =>
@@ -112,6 +163,7 @@ const LiveSessions = () => {
       setSelectedSessionId(sessionId);
       setLiveParameters({ ...session.currentParameters });
       await connect(sessionId, { onParams: handleIncomingParams });
+      await loadSessions();
     } catch (error) {
       console.error('Error joining session:', error);
       alert(error.response?.data?.error || 'Failed to join session');
@@ -230,7 +282,7 @@ const LiveSessions = () => {
                     onClick={handleLeaveSession}
                     className="text-sm text-red-600 hover:text-red-700 dark:text-red-400"
                   >
-                    Leave session
+                    {isSessionHost ? 'End session' : 'Leave session'}
                   </button>
                 </div>
                 <SessionArtCanvas parameters={liveParameters} />
@@ -381,7 +433,14 @@ const LiveSessions = () => {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {sessions.map((session) => (
+          {sessions.map((session) => {
+            const maxParticipants = session.maxParticipants || 10;
+            const atCapacity = session.participants.length >= maxParticipants;
+            const alreadyIn = isUserParticipant(session, currentUser);
+            const joinDisabled = !currentUser || (atCapacity && !alreadyIn);
+            const joinLabel = alreadyIn ? 'Rejoin' : atCapacity ? 'Full' : 'Join';
+
+            return (
             <div key={session.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <div className="flex items-start justify-between mb-4">
                 <div>
@@ -406,7 +465,7 @@ const LiveSessions = () => {
               <div className="flex -space-x-2 mb-4">
                 {session.participants.slice(0, 6).map((p) => (
                   <img
-                    key={p.userId}
+                    key={participantKey(p)}
                     src={`https://ui-avatars.com/api/?name=${encodeURIComponent(p.username || 'U')}&background=6366f1&color=fff`}
                     alt={p.username}
                     title={p.username}
@@ -440,24 +499,25 @@ const LiveSessions = () => {
                     onClick={handleLeaveSession}
                     className="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 text-sm"
                   >
-                    Leave
+                    {String(session.hostId?.$oid ?? session.hostId) ===
+                    String(currentUser?.id ?? currentUser?._id)
+                      ? 'End'
+                      : 'Leave'}
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={() => handleJoinSession(session)}
-                    disabled={
-                      !currentUser ||
-                      session.participants.length >= (session.maxParticipants || 10)
-                    }
+                    disabled={joinDisabled}
                     className="flex-1 bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 text-sm"
                   >
-                    {session.participants.length >= (session.maxParticipants || 10) ? 'Full' : 'Join'}
+                    {joinLabel}
                   </button>
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {sessions.length === 0 && (
