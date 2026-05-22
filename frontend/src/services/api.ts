@@ -64,7 +64,7 @@ const api = {
     return res.data;
   },
   async addComment(id, text, parentId = null) {
-    const body = { text };
+    const body: { text: string; parentId?: string } = { text };
     if (parentId) body.parentId = parentId;
     const res = await client.post(`/artworks/${id}/comments`, body);
     return res.data;

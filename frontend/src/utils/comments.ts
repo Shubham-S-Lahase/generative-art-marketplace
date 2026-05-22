@@ -1,13 +1,15 @@
-export function commentId(comment) {
+import type { Comment, CommentTreeNode, User } from '../types';
+
+export function commentId(comment: Comment | null | undefined): string {
   const id = comment?._id ?? comment?.id;
   return id ? String(id) : '';
 }
 
-export function buildCommentTree(comments) {
+export function buildCommentTree(comments: Comment[]): CommentTreeNode[] {
   if (!Array.isArray(comments)) return [];
 
-  const nodes = {};
-  const roots = [];
+  const nodes: Record<string, CommentTreeNode> = {};
+  const roots: CommentTreeNode[] = [];
 
   comments.forEach((comment) => {
     const id = commentId(comment);
@@ -27,7 +29,7 @@ export function buildCommentTree(comments) {
   return roots;
 }
 
-export function isCommentOwner(comment, currentUser) {
+export function isCommentOwner(comment: Comment | null | undefined, currentUser: User | null | undefined): boolean {
   if (!currentUser || !comment) return false;
   const ownerId = String(comment.userId ?? '');
   const userId = String(currentUser.id ?? currentUser._id ?? '');

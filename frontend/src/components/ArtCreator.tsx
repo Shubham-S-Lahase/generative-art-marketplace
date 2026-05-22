@@ -786,7 +786,7 @@ const ArtCreator = () => {
       setHistoryIndex(newIndex);
       setParameters({ ...history[newIndex] });
       setSliderComplexity(history[newIndex].complexity);
-      generateArtwork();
+      generateArt(animationFrame);
     }
   };
 
@@ -796,7 +796,7 @@ const ArtCreator = () => {
       setHistoryIndex(newIndex);
       setParameters({ ...history[newIndex] });
       setSliderComplexity(history[newIndex].complexity);
-      generateArtwork();
+      generateArt(animationFrame);
     }
   };
 
@@ -826,7 +826,7 @@ const ArtCreator = () => {
   const loadPreset = (preset) => {
     setParameters(preset.parameters);
     setSliderComplexity(preset.parameters.complexity);
-    generateArtwork();
+    generateArt(animationFrame);
   };
 
   const deletePreset = (presetId) => {

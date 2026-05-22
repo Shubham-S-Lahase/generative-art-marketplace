@@ -1,11 +1,15 @@
 import React, { useMemo } from 'react';
 import { TrendingUp } from 'lucide-react';
+import type { ChartDataPoint } from '../types';
 
 const VIEWBOX_WIDTH = 480;
 const CHART_HEIGHT = 220;
 const CHART_PADDING = { top: 16, right: 24, bottom: 52, left: 44 };
 
-const PerformanceChart = ({ chartData = [], summary = {} }) => {
+const PerformanceChart = ({ chartData = [], summary = {} }: {
+  chartData?: ChartDataPoint[];
+  summary?: { totalViews?: number; totalLikes?: number };
+}) => {
   const { maxValue, bars } = useMemo(() => {
     const items = chartData.map((d) => ({
       id: d.id || d._id,

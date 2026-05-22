@@ -4,8 +4,13 @@ import { Heart, MessageCircle, Share2, Bookmark, Eye } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
 import { getImageUrl } from '../utils/helpers';
+import type { Artwork } from '../types';
 
-const ArtworkCard = ({ artwork, onLike, onBookmark }) => {
+const ArtworkCard = ({ artwork, onLike, onBookmark }: {
+  artwork: Artwork;
+  onLike?: (id: string, liked: boolean) => void;
+  onBookmark?: (id: string, bookmarked: boolean) => void;
+}) => {
   const { currentUser } = useAuth();
   const [isLiked, setIsLiked] = useState(
     artwork.likedBy?.includes(currentUser?.id) || false
