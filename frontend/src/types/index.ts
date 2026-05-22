@@ -25,6 +25,7 @@ export interface User {
   email?: string;
   profile?: UserProfile;
   stats?: UserStats;
+  isFollowing?: boolean;
   createdAt?: string;
 }
 

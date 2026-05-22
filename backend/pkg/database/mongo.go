@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -28,10 +29,22 @@ func Connect(uri, dbName string) (*MongoDB, error) {
 	}
 
 	log.Printf("connected to MongoDB: %s", uri)
-	return &MongoDB{
+	db := &MongoDB{
 		Client:   client,
 		Database: client.Database(dbName),
-	}, nil
+	}
+	db.ensureIndexes(ctx)
+	return db, nil
+}
+
+func (db *MongoDB) ensureIndexes(ctx context.Context) {
+	_, err := db.ArtworkViews().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"artworkId": 1, "viewerKey": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		log.Printf("artwork_views index: %v", err)
+	}
 }
 
 func (db *MongoDB) Close(ctx context.Context) error {
@@ -49,4 +62,5 @@ func (db *MongoDB) Bookmarks() *mongo.Collection     { return db.Database.Collec
 func (db *MongoDB) Notifications() *mongo.Collection { return db.Database.Collection("notifications") }
 func (db *MongoDB) Sessions() *mongo.Collection      { return db.Database.Collection("sessions") }
 func (db *MongoDB) Purchases() *mongo.Collection     { return db.Database.Collection("purchases") }
+func (db *MongoDB) ArtworkViews() *mongo.Collection  { return db.Database.Collection("artwork_views") }
 

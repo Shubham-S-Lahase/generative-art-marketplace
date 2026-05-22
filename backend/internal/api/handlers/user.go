@@ -3,11 +3,14 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"generative-art-marketplace/internal/config"
 	"generative-art-marketplace/internal/models"
+	"generative-art-marketplace/pkg/cloudinary"
 	"generative-art-marketplace/pkg/database"
+	"generative-art-marketplace/pkg/generator"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
@@ -17,31 +20,94 @@ import (
 )
 
 type UserHandler struct {
-	db  *database.MongoDB
-	cfg *config.Config
+	db         *database.MongoDB
+	cfg        *config.Config
+	cloudinary *cloudinary.Service
 }
 
-func NewUserHandler(db *database.MongoDB, cfg *config.Config) *UserHandler {
-	return &UserHandler{db: db, cfg: cfg}
+func NewUserHandler(db *database.MongoDB, cfg *config.Config, cloudinaryService *cloudinary.Service) *UserHandler {
+	return &UserHandler{db: db, cfg: cfg, cloudinary: cloudinaryService}
 }
 
 func (h *UserHandler) GetUserProfile(c *gin.Context) {
-	username := c.Param("username")
-
-	var user models.User
-	err := h.db.Users().FindOne(context.TODO(), bson.M{"username": username}).Decode(&user)
-	if err == mongo.ErrNoDocuments {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	user, err := h.findUserByUsername(c.Param("username"))
+	if err != nil {
+		h.handleUserLookupError(c, err)
 		return
-	} else if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+	}
+	c.JSON(http.StatusOK, h.buildProfileResponse(c, user))
+}
+
+func (h *UserHandler) UpdateProfile(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
-	// Remove sensitive information
-	user.Password = ""
+	var req models.UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-	c.JSON(http.StatusOK, user)
+	update := bson.M{
+		"bio":       strings.TrimSpace(req.Bio),
+		"location":  strings.TrimSpace(req.Location),
+		"website":   strings.TrimSpace(req.Website),
+		"updatedAt": time.Now(),
+	}
+
+	ctx := context.Background()
+	if strings.TrimSpace(req.AvatarData) != "" {
+		if h.cloudinary == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Image upload service unavailable"})
+			return
+		}
+		bytes, err := generator.DecodeBase64ToBytes(req.AvatarData)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid avatar image"})
+			return
+		}
+		url, err := h.cloudinary.UploadImage(ctx, bytes, "avatars")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to upload avatar"})
+			return
+		}
+		update["avatarUrl"] = url
+	}
+
+	if strings.TrimSpace(req.CoverImageData) != "" {
+		if h.cloudinary == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Image upload service unavailable"})
+			return
+		}
+		bytes, err := generator.DecodeBase64ToBytes(req.CoverImageData)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cover image"})
+			return
+		}
+		url, err := h.cloudinary.UploadImage(ctx, bytes, "covers")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to upload cover image"})
+			return
+		}
+		update["coverImageUrl"] = url
+	}
+
+	_, err := h.db.Users().UpdateOne(context.TODO(), bson.M{"_id": userID}, bson.M{"$set": update})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+		return
+	}
+
+	var user models.User
+	if err := h.db.Users().FindOne(context.TODO(), bson.M{"_id": userID}).Decode(&user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load updated profile"})
+		return
+	}
+
+	c.JSON(http.StatusOK, h.buildProfileResponse(c, user))
 }
 
 // GetMe returns the authenticated user's profile.
@@ -63,25 +129,22 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	}
 
 	user.Password = ""
-	c.JSON(http.StatusOK, user)
+	c.JSON(http.StatusOK, h.buildProfileResponse(c, user))
 }
 
 func (h *UserHandler) GetUserArtworks(c *gin.Context) {
-	username := c.Param("username")
-
-	// Find user first
-	var user models.User
-	err := h.db.Users().FindOne(context.TODO(), bson.M{"username": username}).Decode(&user)
-	if err == mongo.ErrNoDocuments {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	user, err := h.findUserByUsername(c.Param("username"))
+	if err != nil {
+		h.handleUserLookupError(c, err)
 		return
 	}
 
-	// Get user's artworks
-	cursor, err := h.db.Artworks().Find(context.TODO(), bson.M{
-		"userId":   user.ID,
-		"isPublic": true,
-	})
+	filter := bson.M{"userId": user.ID}
+	if !h.isViewerOwner(c, user.ID) {
+		filter["isPublic"] = true
+	}
+
+	cursor, err := h.db.Artworks().Find(context.TODO(), filter, options.Find().SetSort(bson.M{"createdAt": -1}))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch artworks"})
 		return
@@ -94,6 +157,54 @@ func (h *UserHandler) GetUserArtworks(c *gin.Context) {
 		return
 	}
 
+	c.JSON(http.StatusOK, artworks)
+}
+
+func (h *UserHandler) GetUserLikedArtworks(c *gin.Context) {
+	user, err := h.findUserByUsername(c.Param("username"))
+	if err != nil {
+		h.handleUserLookupError(c, err)
+		return
+	}
+
+	artworkIDs, err := h.likedArtworkIDsForUser(user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch liked artworks"})
+		return
+	}
+
+	onlyPublic := !h.isViewerOwner(c, user.ID)
+	artworks, err := h.fetchArtworksByIDs(artworkIDs, onlyPublic)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load liked artworks"})
+		return
+	}
+	c.JSON(http.StatusOK, artworks)
+}
+
+func (h *UserHandler) GetUserCollections(c *gin.Context) {
+	user, err := h.findUserByUsername(c.Param("username"))
+	if err != nil {
+		h.handleUserLookupError(c, err)
+		return
+	}
+
+	if !h.isViewerOwner(c, user.ID) {
+		c.JSON(http.StatusOK, []models.Artwork{})
+		return
+	}
+
+	artworkIDs, err := h.bookmarkedArtworkIDsForUser(user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch collections"})
+		return
+	}
+
+	artworks, err := h.fetchArtworksByIDs(artworkIDs, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load collections"})
+		return
+	}
 	c.JSON(http.StatusOK, artworks)
 }
 
@@ -398,6 +509,151 @@ func (h *UserHandler) GetAnalytics(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, analytics)
+}
+
+func (h *UserHandler) findUserByUsername(username string) (models.User, error) {
+	var user models.User
+	err := h.db.Users().FindOne(context.TODO(), bson.M{"username": username}).Decode(&user)
+	return user, err
+}
+
+func (h *UserHandler) handleUserLookupError(c *gin.Context, err error) {
+	if err == mongo.ErrNoDocuments {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+}
+
+func (h *UserHandler) isViewerOwner(c *gin.Context, profileUserID primitive.ObjectID) bool {
+	viewerID, ok := c.Get("userID")
+	if !ok {
+		return false
+	}
+	return viewerID.(primitive.ObjectID) == profileUserID
+}
+
+func (h *UserHandler) computeUserStats(userID primitive.ObjectID) gin.H {
+	artworkIDs, artworkCount := h.getUserArtworkIDs(userID)
+	likesOnArtworks, _ := h.db.Likes().CountDocuments(context.TODO(), bson.M{"artworkId": bson.M{"$in": artworkIDs}})
+
+	var user models.User
+	_ = h.db.Users().FindOne(context.TODO(), bson.M{"_id": userID}).Decode(&user)
+
+	return gin.H{
+		"artworksCreated": artworkCount,
+		"totalViews":      h.sumArtworkMetric(userID, "metrics.views"),
+		"totalLikes":      likesOnArtworks,
+		"followersCount":  user.FollowersCount,
+		"followingCount":  user.FollowingCount,
+	}
+}
+
+func (h *UserHandler) buildProfileResponse(c *gin.Context, user models.User) gin.H {
+	user.Password = ""
+	stats := h.computeUserStats(user.ID)
+
+	resp := gin.H{
+		"id":             user.ID,
+		"username":       user.Username,
+		"createdAt":      user.CreatedAt,
+		"updatedAt":      user.UpdatedAt,
+		"followersCount": user.FollowersCount,
+		"followingCount": user.FollowingCount,
+		"stats":          stats,
+		"profile": gin.H{
+			"bio":        user.Bio,
+			"avatar":     user.AvatarURL,
+			"coverImage": user.CoverImageURL,
+			"location":   user.Location,
+			"website":    user.Website,
+		},
+	}
+
+	if viewerID, ok := c.Get("userID"); ok {
+		count, _ := h.db.Follows().CountDocuments(context.TODO(), bson.M{
+			"followerId": viewerID,
+			"followeeId": user.ID,
+		})
+		resp["isFollowing"] = count > 0
+	} else {
+		resp["isFollowing"] = false
+	}
+
+	if h.isViewerOwner(c, user.ID) {
+		resp["email"] = user.Email
+	}
+
+	return resp
+}
+
+func (h *UserHandler) likedArtworkIDsForUser(userID primitive.ObjectID) ([]primitive.ObjectID, error) {
+	cursor, err := h.db.Likes().Find(context.TODO(), bson.M{"userId": userID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.TODO())
+
+	var ids []primitive.ObjectID
+	for cursor.Next(context.TODO()) {
+		var like models.Like
+		if err := cursor.Decode(&like); err == nil {
+			ids = append(ids, like.ArtworkID)
+		}
+	}
+	return ids, nil
+}
+
+func (h *UserHandler) bookmarkedArtworkIDsForUser(userID primitive.ObjectID) ([]primitive.ObjectID, error) {
+	cursor, err := h.db.Bookmarks().Find(context.TODO(), bson.M{"userId": userID}, options.Find().SetSort(bson.M{"createdAt": -1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.TODO())
+
+	var ids []primitive.ObjectID
+	for cursor.Next(context.TODO()) {
+		var bookmark models.Bookmark
+		if err := cursor.Decode(&bookmark); err == nil {
+			ids = append(ids, bookmark.ArtworkID)
+		}
+	}
+	return ids, nil
+}
+
+func (h *UserHandler) fetchArtworksByIDs(ids []primitive.ObjectID, onlyPublic bool) ([]models.Artwork, error) {
+	if len(ids) == 0 {
+		return []models.Artwork{}, nil
+	}
+
+	filter := bson.M{"_id": bson.M{"$in": ids}}
+	if onlyPublic {
+		filter["isPublic"] = true
+	}
+
+	cursor, err := h.db.Artworks().Find(context.TODO(), filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.TODO())
+
+	var artworks []models.Artwork
+	if err := cursor.All(context.TODO(), &artworks); err != nil {
+		return nil, err
+	}
+
+	// Preserve bookmark/like order
+	byID := make(map[primitive.ObjectID]models.Artwork, len(artworks))
+	for _, art := range artworks {
+		byID[art.ID] = art
+	}
+	ordered := make([]models.Artwork, 0, len(ids))
+	for _, id := range ids {
+		if art, ok := byID[id]; ok {
+			ordered = append(ordered, art)
+		}
+	}
+	return ordered, nil
 }
 
 func (h *UserHandler) getUserArtworkIDs(userID primitive.ObjectID) ([]primitive.ObjectID, int64) {

@@ -154,16 +154,66 @@ func (h *ArtworkHandler) GetArtwork(c *gin.Context) {
 		return
 	}
 
-	// Increment view count
-	h.db.Artworks().UpdateOne(
-		context.TODO(),
-		bson.M{"_id": objectID},
-		bson.M{"$inc": bson.M{"metrics.views": 1}},
-	)
-
-	// Populate username
+	// Populate username (view count is incremented via POST /artworks/:id/view)
 	result := h.populateUsernames([]models.Artwork{artwork})[0]
 	c.JSON(http.StatusOK, result)
+}
+
+// RecordArtworkView increments views once per viewer per artwork (per browser session on client).
+func (h *ArtworkHandler) RecordArtworkView(c *gin.Context) {
+	objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid artwork ID"})
+		return
+	}
+
+	var artwork models.Artwork
+	if err := h.db.Artworks().FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&artwork); err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Artwork not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	viewerKey := h.viewerKey(c)
+	result, err := h.db.ArtworkViews().UpdateOne(
+		context.TODO(),
+		bson.M{"artworkId": objectID, "viewerKey": viewerKey},
+		bson.M{"$setOnInsert": bson.M{
+			"artworkId": objectID,
+			"viewerKey": viewerKey,
+			"createdAt": time.Now(),
+		}},
+		options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record view"})
+		return
+	}
+
+	counted := result.UpsertedCount > 0
+	if counted {
+		_, _ = h.db.Artworks().UpdateOne(
+			context.TODO(),
+			bson.M{"_id": objectID},
+			bson.M{"$inc": bson.M{"metrics.views": 1}},
+		)
+		artwork.Metrics.Views++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"views":   artwork.Metrics.Views,
+		"counted": counted,
+	})
+}
+
+func (h *ArtworkHandler) viewerKey(c *gin.Context) string {
+	if userID, ok := c.Get("userID"); ok {
+		return "user:" + userID.(primitive.ObjectID).Hex()
+	}
+	return "ip:" + c.ClientIP()
 }
 
 // GeneratePreview renders server-side art without persisting to DB.

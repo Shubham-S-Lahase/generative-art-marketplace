@@ -15,7 +15,7 @@ import (
 func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *config.Config, cloudinaryService *cloudinary.Service) {
 	artworkHandler := handlers.NewArtworkHandler(db, cfg, cloudinaryService)
 	sessionHandler := handlers.NewSessionHandler(db, wsHub, cfg)
-	userHandler := handlers.NewUserHandler(db, cfg)
+	userHandler := handlers.NewUserHandler(db, cfg, cloudinaryService)
 	authHandler := handlers.NewAuthHandler(db, cfg)
 
 	api := r.Group("/api/v1")
@@ -27,14 +27,17 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	// Public data
 	api.GET("/artworks", artworkHandler.GetArtworks)
 	api.GET("/artworks/:id", artworkHandler.GetArtwork)
+	api.POST("/artworks/:id/view", middleware.OptionalAuthMiddleware(cfg), artworkHandler.RecordArtworkView)
 	api.POST("/artworks/generate", artworkHandler.GeneratePreview)
 	api.GET("/artworks/:id/comments", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetComments)
 	api.GET("/artworks/featured", artworkHandler.GetFeaturedArtworks)
 	api.GET("/artworks/trending", artworkHandler.GetTrendingArtworks)
 	api.GET("/artworks/search", artworkHandler.SearchArtworks)
 
-	api.GET("/users/:username", userHandler.GetUserProfile)
-	api.GET("/users/:username/artworks", userHandler.GetUserArtworks)
+	api.GET("/users/:username", middleware.OptionalAuthMiddleware(cfg), userHandler.GetUserProfile)
+	api.GET("/users/:username/artworks", middleware.OptionalAuthMiddleware(cfg), userHandler.GetUserArtworks)
+	api.GET("/users/:username/liked", middleware.OptionalAuthMiddleware(cfg), userHandler.GetUserLikedArtworks)
+	api.GET("/users/:username/collections", middleware.OptionalAuthMiddleware(cfg), userHandler.GetUserCollections)
 	api.GET("/users/search", userHandler.SearchUsers)
 
 	api.GET("/sessions", sessionHandler.GetSessions)
@@ -61,6 +64,7 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 
 	// Users
 	protected.GET("/users/me", userHandler.GetMe)
+	protected.PUT("/users/me", userHandler.UpdateProfile)
 	protected.POST("/users/:id/follow", userHandler.FollowUser)
 	protected.DELETE("/users/:id/follow", userHandler.UnfollowUser)
 	protected.GET("/me/following", userHandler.GetFollowing)

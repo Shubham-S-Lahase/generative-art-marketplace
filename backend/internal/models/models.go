@@ -7,16 +7,27 @@ import (
 )
 
 type User struct {
-	ID            primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Username      string             `bson:"username" json:"username"`
-	Email         string             `bson:"email" json:"email"`
-	Password      string             `bson:"password,omitempty" json:"-"`
-	Bio           string             `bson:"bio,omitempty" json:"bio,omitempty"`
-	AvatarURL     string             `bson:"avatarUrl,omitempty" json:"avatarUrl,omitempty"`
-	FollowersCount int64             `bson:"followersCount" json:"followersCount"`
-	FollowingCount int64             `bson:"followingCount" json:"followingCount"`
-	CreatedAt     time.Time          `bson:"createdAt" json:"createdAt"`
-	UpdatedAt     time.Time          `bson:"updatedAt" json:"updatedAt"`
+	ID             primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Username       string             `bson:"username" json:"username"`
+	Email          string             `bson:"email" json:"email"`
+	Password       string             `bson:"password,omitempty" json:"-"`
+	Bio            string             `bson:"bio,omitempty" json:"bio,omitempty"`
+	AvatarURL      string             `bson:"avatarUrl,omitempty" json:"avatarUrl,omitempty"`
+	CoverImageURL  string             `bson:"coverImageUrl,omitempty" json:"coverImageUrl,omitempty"`
+	Location       string             `bson:"location,omitempty" json:"location,omitempty"`
+	Website        string             `bson:"website,omitempty" json:"website,omitempty"`
+	FollowersCount int64              `bson:"followersCount" json:"followersCount"`
+	FollowingCount int64              `bson:"followingCount" json:"followingCount"`
+	CreatedAt      time.Time          `bson:"createdAt" json:"createdAt"`
+	UpdatedAt      time.Time          `bson:"updatedAt" json:"updatedAt"`
+}
+
+type UpdateProfileRequest struct {
+	Bio            string `json:"bio"`
+	Location       string `json:"location"`
+	Website        string `json:"website"`
+	AvatarData     string `json:"avatarData"`
+	CoverImageData string `json:"coverImageData"`
 }
 
 type ArtworkMetrics struct {
@@ -76,6 +87,14 @@ type Like struct {
 	UserID    primitive.ObjectID `bson:"userId" json:"userId"`
 	ArtworkID primitive.ObjectID `bson:"artworkId" json:"artworkId"`
 	CreatedAt time.Time          `bson:"createdAt" json:"createdAt"`
+}
+
+// ArtworkView records a unique view per viewer (user id or IP) per artwork.
+type ArtworkView struct {
+	ID         primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ArtworkID  primitive.ObjectID `bson:"artworkId" json:"artworkId"`
+	ViewerKey  string             `bson:"viewerKey" json:"viewerKey"`
+	CreatedAt  time.Time          `bson:"createdAt" json:"createdAt"`
 }
 
 type Comment struct {

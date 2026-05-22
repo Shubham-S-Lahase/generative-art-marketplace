@@ -43,6 +43,30 @@ const ArtworkDetail = () => {
         if (cancelled) return;
         setArtwork(art);
         setComments(Array.isArray(comm) ? comm : []);
+
+        const viewKey = `artwork-view:${id}`;
+        if (!sessionStorage.getItem(viewKey)) {
+          sessionStorage.setItem(viewKey, '1');
+          try {
+            const viewRes = await api.recordArtworkView(id);
+            if (!cancelled && viewRes?.counted) {
+              setArtwork((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      metrics: {
+                        ...(prev.metrics || {}),
+                        views: viewRes.views ?? (prev.metrics?.views || 0) + 1,
+                      },
+                    }
+                  : prev
+              );
+            }
+          } catch (viewErr) {
+            sessionStorage.removeItem(viewKey);
+            console.error('Failed to record view:', viewErr);
+          }
+        }
       } catch (err) {
         if (cancelled) return;
         console.error(err);

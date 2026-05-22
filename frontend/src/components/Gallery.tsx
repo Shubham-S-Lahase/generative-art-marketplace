@@ -19,32 +19,41 @@ const Gallery = () => {
   ];
 
   useEffect(() => {
-    loadArtworks();
-  }, [searchQuery, selectedCategory, sortBy]);
+    let cancelled = false;
 
-  const loadArtworks = async () => {
-    try {
-      setLoading(true);
-      const params = {
-        q: searchQuery || undefined,
-        category: selectedCategory !== 'all' ? selectedCategory : undefined,
-        sort: sortBy,
-      };
-      const data = searchQuery ? await api.getArtworks(params) : await api.getArtworks(params);
-      const normalized = data.map((a) => ({
-        ...a,
-        id: a.id || a._id,
-        files: { preview: getImageUrl(a.previewUrl || a.imageUrl) },
-        previewUrl: getImageUrl(a.previewUrl || a.imageUrl),
-        imageUrl: getImageUrl(a.imageUrl || a.previewUrl),
-      }));
-      setArtworks(normalized);
-    } catch (error) {
-      console.error('Error loading artworks:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const loadArtworks = async () => {
+      try {
+        setLoading(true);
+        const params = {
+          q: searchQuery || undefined,
+          category: selectedCategory !== 'all' ? selectedCategory : undefined,
+          sort: sortBy,
+        };
+        const data = await api.getArtworks(params);
+        if (cancelled) return;
+        const normalized = (Array.isArray(data) ? data : []).map((a) => ({
+          ...a,
+          id: a.id || a._id,
+          files: { preview: getImageUrl(a.previewUrl || a.imageUrl) },
+          previewUrl: getImageUrl(a.previewUrl || a.imageUrl),
+          imageUrl: getImageUrl(a.imageUrl || a.previewUrl),
+        }));
+        setArtworks(normalized);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Error loading artworks:', error);
+          setArtworks([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadArtworks();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchQuery, selectedCategory, sortBy]);
 
   if (loading) {
     return (

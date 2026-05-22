@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { dedupedRequest } from './requestDedup';
+import { buildGetCacheKey, dedupedRequest } from './requestDedup';
 
 const client = axios.create({
   baseURL: '/api/v1',
@@ -35,14 +35,21 @@ const api = {
 
   // Artworks
   async getArtworks(params = {}) {
-    const res = await client.get('/artworks', { params });
-    return res.data;
+    const key = buildGetCacheKey('artworks', params);
+    return dedupedRequest(key, async () => {
+      const res = await client.get('/artworks', { params });
+      return res.data;
+    });
   },
   async getArtwork(id) {
     return dedupedRequest(`artworks/${id}`, async () => {
       const res = await client.get(`/artworks/${id}`);
       return res.data;
     });
+  },
+  async recordArtworkView(id) {
+    const res = await client.post(`/artworks/${id}/view`);
+    return res.data;
   },
   async createArtwork(payload) {
     const res = await client.post('/artworks', payload);
@@ -107,7 +114,25 @@ const api = {
 
   // Users
   async getProfile(username) {
-    const res = await client.get(`/users/${username}`);
+    return dedupedRequest(`users/${username}`, async () => {
+      const res = await client.get(`/users/${username}`);
+      return res.data;
+    });
+  },
+  async updateProfile(payload) {
+    const res = await client.put('/users/me', payload);
+    return res.data;
+  },
+  async getUserLikedArtworks(username) {
+    const res = await client.get(`/users/${username}/liked`);
+    return res.data;
+  },
+  async getUserCollections(username) {
+    const res = await client.get(`/users/${username}/collections`);
+    return res.data;
+  },
+  async getUserArtworks(username) {
+    const res = await client.get(`/users/${username}/artworks`);
     return res.data;
   },
   async follow(userId) {
