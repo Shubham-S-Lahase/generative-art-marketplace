@@ -65,6 +65,12 @@ type CreateArtworkRequest struct {
 	Marketplace MarketplaceInfo `json:"marketplace"`
 }
 
+// GeneratePreviewRequest is used for server-side preview without saving an artwork.
+type GeneratePreviewRequest struct {
+	Parameters map[string]any `json:"parameters" binding:"required"`
+	ImageData  string         `json:"imageData"`
+}
+
 type Like struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	UserID    primitive.ObjectID `bson:"userId" json:"userId"`

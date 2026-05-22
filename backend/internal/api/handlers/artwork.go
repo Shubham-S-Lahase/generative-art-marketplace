@@ -168,12 +168,21 @@ func (h *ArtworkHandler) GetArtwork(c *gin.Context) {
 
 // GeneratePreview renders server-side art without persisting to DB.
 func (h *ArtworkHandler) GeneratePreview(c *gin.Context) {
-	var req models.CreateArtworkRequest
+	var req models.GeneratePreviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	imgPath, err := h.persistImage(req)
+	if req.Parameters == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "parameters are required"})
+		return
+	}
+
+	imgPath, err := h.persistImage(models.CreateArtworkRequest{
+		Title:      "preview",
+		Parameters: req.Parameters,
+		ImageData:  req.ImageData,
+	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

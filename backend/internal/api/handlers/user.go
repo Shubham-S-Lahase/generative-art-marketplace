@@ -348,6 +348,7 @@ func (h *UserHandler) GetDashboardStats(c *gin.Context) {
 	commentsCount, _ := h.db.Comments().CountDocuments(context.TODO(), bson.M{"artworkId": bson.M{"$in": artworkIDs}})
 	followersCount, _ := h.db.Follows().CountDocuments(context.TODO(), bson.M{"followeeId": userID})
 	viewsSum := h.sumArtworkMetric(userID.(primitive.ObjectID), "metrics.views")
+	totalRevenue := h.sumPurchaseRevenue(artworkIDs)
 
 	stats := gin.H{
 		"artworksCreated": artworkCount,
@@ -355,6 +356,7 @@ func (h *UserHandler) GetDashboardStats(c *gin.Context) {
 		"totalLikes":      likesCount,
 		"totalComments":   commentsCount,
 		"followersCount":  followersCount,
+		"totalRevenue":    totalRevenue,
 	}
 
 	c.JSON(http.StatusOK, stats)
@@ -380,8 +382,19 @@ func (h *UserHandler) GetAnalytics(c *gin.Context) {
 	var top []models.Artwork
 	_ = cursor.All(context.TODO(), &top)
 
+	chartData := make([]gin.H, 0, len(top))
+	for _, art := range top {
+		chartData = append(chartData, gin.H{
+			"id":    art.ID,
+			"title": art.Title,
+			"views": art.Metrics.Views,
+			"likes": art.Metrics.Likes,
+		})
+	}
+
 	analytics := gin.H{
 		"topArtworks": top,
+		"chartData":   chartData,
 	}
 
 	c.JSON(http.StatusOK, analytics)
@@ -404,6 +417,28 @@ func (h *UserHandler) getUserArtworkIDs(userID primitive.ObjectID) ([]primitive.
 		}
 	}
 	return ids, int64(len(ids))
+}
+
+func (h *UserHandler) sumPurchaseRevenue(artworkIDs []primitive.ObjectID) float64 {
+	if len(artworkIDs) == 0 {
+		return 0
+	}
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: bson.M{"artworkId": bson.M{"$in": artworkIDs}}}},
+		bson.D{{Key: "$group", Value: bson.M{"_id": nil, "total": bson.M{"$sum": "$amount"}}}},
+	}
+	cursor, err := h.db.Purchases().Aggregate(context.TODO(), pipeline)
+	if err != nil {
+		return 0
+	}
+	defer cursor.Close(context.TODO())
+	var result []struct {
+		Total float64 `bson:"total"`
+	}
+	if cursor.All(context.TODO(), &result) == nil && len(result) > 0 {
+		return result[0].Total
+	}
+	return 0
 }
 
 func (h *UserHandler) sumArtworkMetric(userID primitive.ObjectID, field string) int64 {

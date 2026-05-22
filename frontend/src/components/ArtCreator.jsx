@@ -3,7 +3,7 @@ import { Play, Download, Save, Shuffle, Settings, Palette, Cloud, Undo, Redo, Ma
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
-import { debounce } from '../utils/helpers';
+import { debounce, getImageUrl } from '../utils/helpers';
 
 const ArtCreator = () => {
   const { currentUser } = useAuth();
@@ -880,11 +880,20 @@ const ArtCreator = () => {
 
   const generateServerSide = async () => {
     try {
-      const res = await api.generatePreview({ parameters });
-      setServerPreview(res.previewUrl);
+      setIsGenerating(true);
+      const canvas = canvasRef.current;
+      const imageData = canvas ? canvas.toDataURL('image/png') : '';
+      const res = await api.generatePreview({
+        parameters,
+        imageData: imageData || undefined,
+      });
+      setServerPreview(getImageUrl(res.previewUrl));
     } catch (err) {
       console.error(err);
-      alert('Server generation failed');
+      const msg = err.response?.data?.error || err.message || 'Server generation failed';
+      alert(msg);
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -984,9 +993,10 @@ const ArtCreator = () => {
           <p className="text-gray-600 dark:text-gray-300">Design beautiful algorithmic artworks with our advanced tools</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Parameters Panel */}
-          <div className="lg:col-span-1">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:items-start">
+          {/* Parameters Panel — scrolls independently on desktop */}
+          <div className="lg:col-span-1 order-2 lg:order-1">
+            <div className="lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:overscroll-contain pr-1">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 space-y-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Parameters</h3>
 
@@ -1563,14 +1573,15 @@ const ArtCreator = () => {
                 )}
               </div>
             </div>
+            </div>
           </div>
 
-          {/* Canvas Area */}
-          <div className="lg:col-span-2">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-              <div className="flex items-center justify-between mb-6">
+          {/* Canvas Area — preview stays visible while scrolling controls or artwork form */}
+          <div className="lg:col-span-2 order-1 lg:order-2 space-y-6">
+            <div className="lg:sticky lg:top-20 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Preview</h3>
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     onClick={undo}
                     disabled={historyIndex === 0}
@@ -1589,10 +1600,11 @@ const ArtCreator = () => {
                   </button>
                   <button
                     onClick={generateServerSide}
-                    className="flex items-center space-x-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700"
+                    disabled={isGenerating}
+                    className="flex items-center space-x-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Cloud className="h-4 w-4" />
-                    <span>Generate on server</span>
+                    <span>{isGenerating ? 'Generating…' : 'Generate on server'}</span>
                   </button>
                   <button
                     onClick={() => setShowFullscreen(true)}
@@ -1656,25 +1668,61 @@ const ArtCreator = () => {
                 </div>
               </div>
 
-              <div className="flex justify-center">
-                <canvas
-                  ref={canvasRef}
-                  width={canvasSize.width}
-                  height={canvasSize.height}
-                  className="border border-gray-300 dark:border-gray-600 rounded-lg max-w-full h-auto"
-                />
-              </div>
-              {serverPreview && (
-                <div className="mt-4">
-                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">Server-generated preview:</p>
-                  <img src={serverPreview} alt="Server preview" className="w-full max-w-xl rounded-lg border border-gray-200 dark:border-gray-700" />
+              <div
+                className={
+                  serverPreview
+                    ? 'grid grid-cols-1 md:grid-cols-2 gap-4 items-start'
+                    : 'space-y-2'
+                }
+              >
+                <div className="flex flex-col items-center min-w-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 w-full text-center">
+                    Live preview
+                  </p>
+                  <div className="flex justify-center w-full overflow-auto max-h-[min(50vh,calc(100vh-16rem))] rounded-lg bg-gray-100 dark:bg-gray-900/40 p-2">
+                    <canvas
+                      ref={canvasRef}
+                      width={canvasSize.width}
+                      height={canvasSize.height}
+                      className="border border-gray-300 dark:border-gray-600 rounded-lg max-w-full max-h-[min(48vh,calc(100vh-18rem))] w-auto h-auto object-contain shadow-sm"
+                    />
+                  </div>
                 </div>
-              )}
+
+                {serverPreview && (
+                  <div className="flex flex-col items-center min-w-0 md:border-l md:border-gray-200 md:dark:border-gray-700 md:pl-4">
+                    <div className="flex items-center justify-center gap-2 mb-2 w-full">
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400 text-center">
+                        Server preview
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setServerPreview('')}
+                        className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        title="Dismiss server preview"
+                        aria-label="Dismiss server preview"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2 px-2">
+                      Saved to Cloudinary — should match your live canvas
+                    </p>
+                    <div className="flex justify-center w-full rounded-lg bg-gray-100 dark:bg-gray-900/40 p-2">
+                      <img
+                        src={serverPreview}
+                        alt="Server-generated preview"
+                        className="max-w-full max-h-[min(48vh,calc(100vh-18rem))] w-auto h-auto object-contain rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Artwork Details */}
+            {/* Artwork Details — scrolls below sticky preview */}
             {currentUser && (
-              <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Artwork Details</h3>
                 <div className="space-y-4">
                   <input

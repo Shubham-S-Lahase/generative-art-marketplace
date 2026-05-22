@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, TrendingUp, Users, Heart, Eye, DollarSign } from 'lucide-react';
+import { BarChart, Users, Heart, Eye, DollarSign, MessageCircle, Plus, Store, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import ArtworkCard from './ArtworkCard';
 import api from '../services/api';
 import { getImageUrl } from '../utils/helpers';
+import PerformanceChart from './PerformanceChart';
 
 const Dashboard = () => {
   const { currentUser } = useAuth();
@@ -13,10 +13,12 @@ const Dashboard = () => {
     artworksCreated: 0,
     totalViews: 0,
     totalLikes: 0,
+    totalComments: 0,
     followersCount: 0,
-    totalRevenue: 0
+    totalRevenue: 0,
   });
   const [recentArtworks, setRecentArtworks] = useState([]);
+  const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,17 +29,20 @@ const Dashboard = () => {
 
   const loadDashboardData = async () => {
     try {
-      const [statsRes, artworksRes] = await Promise.all([
+      const userId = currentUser.id || currentUser._id;
+      const [statsRes, artworksRes, analyticsRes] = await Promise.all([
         api.getDashboard(),
-        api.getArtworks({ userId: currentUser.id || currentUser._id })
+        api.getArtworks({ userId }),
+        api.getAnalytics(),
       ]);
       // Ensure all stats fields have default values
       setStats({
         artworksCreated: statsRes?.artworksCreated || 0,
         totalViews: statsRes?.totalViews || 0,
         totalLikes: statsRes?.totalLikes || 0,
+        totalComments: statsRes?.totalComments || 0,
         followersCount: statsRes?.followersCount || 0,
-        totalRevenue: statsRes?.totalRevenue || 0
+        totalRevenue: statsRes?.totalRevenue || 0,
       });
       const normalized = Array.isArray(artworksRes) 
         ? artworksRes.map((a) => ({
@@ -49,6 +54,18 @@ const Dashboard = () => {
           }))
         : [];
       setRecentArtworks(normalized.slice(0, 5));
+
+      const rawChart = analyticsRes?.chartData ?? analyticsRes?.topArtworks ?? [];
+      setChartData(
+        Array.isArray(rawChart)
+          ? rawChart.map((item) => ({
+              id: item.id || item._id,
+              title: item.title || 'Untitled',
+              views: item.views ?? item.metrics?.views ?? 0,
+              likes: item.likes ?? item.metrics?.likes ?? 0,
+            }))
+          : []
+      );
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       // Set default stats on error
@@ -56,9 +73,11 @@ const Dashboard = () => {
         artworksCreated: 0,
         totalViews: 0,
         totalLikes: 0,
+        totalComments: 0,
         followersCount: 0,
-        totalRevenue: 0
+        totalRevenue: 0,
       });
+      setChartData([]);
     } finally {
       setLoading(false);
     }
@@ -111,15 +130,22 @@ const Dashboard = () => {
       bgColor: 'bg-red-100 dark:bg-red-900/20'
     },
     {
+      title: 'Comments',
+      value: (stats.totalComments || 0).toLocaleString(),
+      icon: <MessageCircle className="h-6 w-6" />,
+      color: 'text-cyan-600',
+      bgColor: 'bg-cyan-100 dark:bg-cyan-900/20',
+    },
+    {
       title: 'Followers',
       value: stats.followersCount || 0,
       icon: <Users className="h-6 w-6" />,
       color: 'text-purple-600',
-      bgColor: 'bg-purple-100 dark:bg-purple-900/20'
+      bgColor: 'bg-purple-100 dark:bg-purple-900/20',
     },
     {
       title: 'Revenue',
-      value: `$${(stats.totalRevenue || 0).toLocaleString()}`,
+      value: `$${(stats.totalRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       icon: <DollarSign className="h-6 w-6" />,
       color: 'text-yellow-600',
       bgColor: 'bg-yellow-100 dark:bg-yellow-900/20'
@@ -139,8 +165,36 @@ const Dashboard = () => {
           </p>
         </div>
 
+        {/* Quick actions */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          <button
+            type="button"
+            onClick={() => navigate('/create')}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+          >
+            <Plus className="h-5 w-5" />
+            Create artwork
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/profile/${currentUser.username}`)}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:border-indigo-500 rounded-lg font-medium transition-colors"
+          >
+            <User className="h-5 w-5" />
+            My profile
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/marketplace')}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:border-indigo-500 rounded-lg font-medium transition-colors"
+          >
+            <Store className="h-5 w-5" />
+            Marketplace
+          </button>
+        </div>
+
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           {statCards.map((stat, index) => (
             <div key={index} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <div className="flex items-center justify-between">
@@ -163,21 +217,25 @@ const Dashboard = () => {
         </div>
 
         {/* Recent Activity */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
           {/* Recent Artworks */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Recent Artworks
               </h3>
-              <button className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 text-sm font-medium">
+              <button
+                type="button"
+                onClick={() => navigate(`/profile/${currentUser.username}`)}
+                className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 text-sm font-medium"
+              >
                 View All
               </button>
             </div>
 
             {recentArtworks.length > 0 ? (
               <div className="space-y-4">
-                {recentArtworks.slice(0, 3).map((artwork) => (
+                {recentArtworks.map((artwork) => (
                   <div 
                     key={artwork.id} 
                     onClick={() => navigate(`/artwork/${artwork.id}`)}
@@ -198,31 +256,56 @@ const Dashboard = () => {
                     </div>
                   </div>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => navigate('/create')}
+                  className="w-full py-2 text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 border border-dashed border-indigo-300 dark:border-indigo-600 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                >
+                  + Create another artwork
+                </button>
               </div>
             ) : (
               <div className="text-center py-8">
                 <BarChart className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600 dark:text-gray-300">No artworks yet</p>
-                <button className="mt-2 text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-medium">
+                <button
+                  type="button"
+                  onClick={() => navigate('/create')}
+                  className="mt-2 text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-medium"
+                >
                   Create your first artwork
                 </button>
               </div>
             )}
           </div>
 
-          {/* Performance Chart Placeholder */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 flex flex-col min-h-[420px] w-full">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
               Performance Overview
             </h3>
-            <div className="h-64 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-              <div className="text-center">
-                <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600 dark:text-gray-300">Chart coming soon</p>
-              </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Views vs likes per artwork
+            </p>
+            <div className="flex-1 w-full min-w-0">
+              <PerformanceChart
+                chartData={chartData}
+                summary={{ totalViews: stats.totalViews, totalLikes: stats.totalLikes }}
+              />
             </div>
           </div>
         </div>
+
+        {/* Tips when portfolio is small */}
+        {stats.artworksCreated <= 2 && (
+          <div className="mt-8 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Grow your reach</h3>
+            <ul className="text-sm text-gray-600 dark:text-gray-300 space-y-2 list-disc list-inside">
+              <li>List artworks on the Marketplace to earn revenue (you have ${stats.totalRevenue.toFixed(2)} so far).</li>
+              <li>Share pieces from Gallery — more views improve your performance chart.</li>
+              <li>Join Live sessions to collaborate and get discovered.</li>
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );
