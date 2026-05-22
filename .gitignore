@@ -1,0 +1,36 @@
+# Environment variables
+.env
+backend/.env
+frontend/.env
+
+# Dependencies
+node_modules/
+backend/vendor/
+
+# Build outputs
+backend/bin/
+backend/dist/
+frontend/dist/
+frontend/build/
+
+# Uploads
+backend/uploads/
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+

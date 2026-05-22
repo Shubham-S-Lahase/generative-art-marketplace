@@ -1,0 +1,155 @@
+import axios from 'axios';
+
+const client = axios.create({
+  baseURL: '/api/v1',
+  withCredentials: true
+});
+
+// attach auth header when we have token from cookie? cookie auto sent. Support WS token usage.
+export const getAuthHeader = async () => {
+  try {
+    const res = await client.get('/auth/ping');
+    return res.data?.token || '';
+  } catch {
+    return '';
+  }
+};
+
+const api = {
+  // Auth
+  async register(data) {
+    const res = await client.post('/auth/register', data);
+    return res.data;
+  },
+  async login(data) {
+    const res = await client.post('/auth/login', data);
+    return res.data;
+  },
+  async getMe() {
+    const res = await client.get('/users/me');
+    return res.data;
+  },
+
+  // Artworks
+  async getArtworks(params = {}) {
+    const res = await client.get('/artworks', { params });
+    return res.data;
+  },
+  async getArtwork(id) {
+    const res = await client.get(`/artworks/${id}`);
+    return res.data;
+  },
+  async createArtwork(payload) {
+    const res = await client.post('/artworks', payload);
+    return res.data;
+  },
+  async updateArtwork(id, payload) {
+    const res = await client.put(`/artworks/${id}`, payload);
+    return res.data;
+  },
+  async likeArtwork(id) {
+    const res = await client.post(`/artworks/${id}/like`);
+    return res.data;
+  },
+  async unlikeArtwork(id) {
+    const res = await client.delete(`/artworks/${id}/like`);
+    return res.data;
+  },
+  async bookmarkArtwork(id) {
+    const res = await client.post(`/artworks/${id}/bookmark`);
+    return res.data;
+  },
+  async unbookmarkArtwork(id) {
+    const res = await client.delete(`/artworks/${id}/bookmark`);
+    return res.data;
+  },
+  async addComment(id, text, parentId = null) {
+    const body = { text };
+    if (parentId) body.parentId = parentId;
+    const res = await client.post(`/artworks/${id}/comments`, body);
+    return res.data;
+  },
+  async getComments(id) {
+    const res = await client.get(`/artworks/${id}/comments`);
+    return res.data;
+  },
+  async updateComment(artworkId, commentId, text) {
+    const res = await client.put(`/artworks/${artworkId}/comments/${commentId}`, { text });
+    return res.data;
+  },
+  async deleteComment(artworkId, commentId) {
+    const res = await client.delete(`/artworks/${artworkId}/comments/${commentId}`);
+    return res.data;
+  },
+  async likeComment(artworkId, commentId) {
+    const res = await client.post(`/artworks/${artworkId}/comments/${commentId}/like`);
+    return res.data;
+  },
+  async unlikeComment(artworkId, commentId) {
+    const res = await client.delete(`/artworks/${artworkId}/comments/${commentId}/like`);
+    return res.data;
+  },
+  async purchaseArtwork(id, license) {
+    const res = await client.post(`/artworks/${id}/purchase`, { license });
+    return res.data;
+  },
+  async generatePreview(parameters) {
+    const res = await client.post('/artworks/generate', parameters);
+    return res.data;
+  },
+
+  // Users
+  async getProfile(username) {
+    const res = await client.get(`/users/${username}`);
+    return res.data;
+  },
+  async follow(userId) {
+    const res = await client.post(`/users/${userId}/follow`);
+    return res.data;
+  },
+  async unfollow(userId) {
+    const res = await client.delete(`/users/${userId}/follow`);
+    return res.data;
+  },
+  async getNotifications() {
+    const res = await client.get('/me/notifications');
+    return res.data;
+  },
+  async markNotificationAsRead(id) {
+    const res = await client.post(`/me/notifications/${id}/read`);
+    return res.data;
+  },
+  async markAllNotificationsAsRead() {
+    const res = await client.post('/me/notifications/read-all');
+    return res.data;
+  },
+  async getDashboard() {
+    const res = await client.get('/me/dashboard');
+    return res.data;
+  },
+  async getAnalytics() {
+    const res = await client.get('/me/analytics');
+    return res.data;
+  },
+
+  // Sessions
+  async getSessions() {
+    const res = await client.get('/sessions');
+    return res.data;
+  },
+  async joinSession(id) {
+    const res = await client.post(`/sessions/${id}/join`);
+    return res.data;
+  },
+  async leaveSession(id) {
+    const res = await client.post(`/sessions/${id}/leave`);
+    return res.data;
+  },
+  async createSession(payload) {
+    const res = await client.post('/sessions', payload);
+    return res.data;
+  },
+};
+
+export default api;
+
