@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"generative-art-marketplace/internal/config"
+	"generative-art-marketplace/internal/models"
 	"generative-art-marketplace/internal/websocket"
 	"generative-art-marketplace/pkg/auth"
 	"generative-art-marketplace/pkg/database"
@@ -46,7 +47,12 @@ func (h *SessionHandler) GetSessions(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, sessions)
+	enriched := make([]bson.M, len(sessions))
+	for i, s := range sessions {
+		enriched[i] = h.enrichSession(s)
+	}
+
+	c.JSON(http.StatusOK, enriched)
 }
 
 func (h *SessionHandler) GetSession(c *gin.Context) {
@@ -67,7 +73,7 @@ func (h *SessionHandler) GetSession(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, session)
+	c.JSON(http.StatusOK, h.enrichSession(session))
 }
 
 func (h *SessionHandler) CreateSession(c *gin.Context) {
@@ -78,10 +84,11 @@ func (h *SessionHandler) CreateSession(c *gin.Context) {
 	}
 
 	var req struct {
-		Name        string `json:"name" binding:"required"`
-		Description string `json:"description"`
-		MaxParticipants int    `json:"maxParticipants"`
-		IsPublic    bool   `json:"isPublic"`
+		Name              string         `json:"name" binding:"required"`
+		Description       string         `json:"description"`
+		MaxParticipants   int            `json:"maxParticipants"`
+		IsPublic          bool           `json:"isPublic"`
+		CurrentParameters map[string]any `json:"currentParameters"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -89,19 +96,43 @@ func (h *SessionHandler) CreateSession(c *gin.Context) {
 		return
 	}
 
+	hostID := userID.(primitive.ObjectID)
+	hostName := h.lookupUsername(hostID)
+	maxParticipants := req.MaxParticipants
+	if maxParticipants <= 0 {
+		maxParticipants = 10
+	}
+
+	defaultParams := bson.M{
+		"colors":     []string{"#FF6B6B", "#4ECDC4", "#45B7D1"},
+		"shapes":     []string{"circles"},
+		"pattern":    "spiral",
+		"complexity": 5,
+		"seed":       time.Now().UnixNano() % 100000,
+	}
+	if len(req.CurrentParameters) > 0 {
+		defaultParams = req.CurrentParameters
+	}
+
 	session := bson.M{
-		"name":           req.Name,
-		"description":    req.Description,
-		"hostId":         userID,
+		"name":              req.Name,
+		"description":       req.Description,
+		"hostId":              hostID,
+		"hostName":            hostName,
 		"participants": []bson.M{
-			{"userId": userID, "joinedAt": time.Now(), "role": "host"},
+			{
+				"userId":   hostID,
+				"username": hostName,
+				"joinedAt": time.Now(),
+				"role":     "host",
+			},
 		},
-		"maxParticipants": req.MaxParticipants,
-		"isPublic":       req.IsPublic,
-		"isActive":       true,
-		"currentParameters": bson.M{},
-		"createdAt":      time.Now(),
-		"updatedAt":      time.Now(),
+		"maxParticipants":   maxParticipants,
+		"isPublic":            req.IsPublic,
+		"isActive":            true,
+		"currentParameters": defaultParams,
+		"createdAt":           time.Now(),
+		"updatedAt":           time.Now(),
 	}
 
 	result, err := h.db.Sessions().InsertOne(context.TODO(), session)
@@ -111,7 +142,7 @@ func (h *SessionHandler) CreateSession(c *gin.Context) {
 	}
 
 	session["_id"] = result.InsertedID
-	c.JSON(http.StatusCreated, session)
+	c.JSON(http.StatusCreated, h.enrichSession(session))
 }
 
 func (h *SessionHandler) JoinSession(c *gin.Context) {
@@ -136,11 +167,14 @@ func (h *SessionHandler) JoinSession(c *gin.Context) {
 	}
 
 	participants, _ := session["participants"].(primitive.A)
-	max, _ := session["maxParticipants"].(int32)
-	if max > 0 && len(participants) >= int(max) {
+	max := sessionMaxParticipants(session)
+	if max > 0 && len(participants) >= max {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Session full"})
 		return
 	}
+
+	uid := userID.(primitive.ObjectID)
+	username := h.lookupUsername(uid)
 
 	_, err = h.db.Sessions().UpdateOne(
 		context.TODO(),
@@ -148,7 +182,8 @@ func (h *SessionHandler) JoinSession(c *gin.Context) {
 		bson.M{
 			"$addToSet": bson.M{
 				"participants": bson.M{
-					"userId":   userID,
+					"userId":   uid,
+					"username": username,
 					"joinedAt": time.Now(),
 					"role":     "participant",
 				},
@@ -257,8 +292,13 @@ func (h *SessionHandler) HandleWebSocket(c *gin.Context) {
 	}
 
 	h.wsHub.Register(sessionID, client)
-	// Notify others of join
-	joinMsg, _ := json.Marshal(gin.H{"type": "system", "payload": gin.H{"event": "join", "userId": claims.UserID}})
+	joinUsername := h.lookupUsernameFromHex(claims.UserID)
+	joinMsg, _ := json.Marshal(gin.H{
+		"type":     "system",
+		"userId":   claims.UserID,
+		"username": joinUsername,
+		"payload":  gin.H{"event": "join", "text": joinUsername + " joined"},
+	})
 	h.wsHub.Broadcast(sessionID, joinMsg)
 
 	// Writer
@@ -283,7 +323,13 @@ func (h *SessionHandler) HandleWebSocket(c *gin.Context) {
 	}
 
 	h.wsHub.Unregister(sessionID, client)
-	leaveMsg, _ := json.Marshal(gin.H{"type": "system", "payload": gin.H{"event": "leave", "userId": claims.UserID}})
+	leaveUsername := h.lookupUsernameFromHex(claims.UserID)
+	leaveMsg, _ := json.Marshal(gin.H{
+		"type":     "system",
+		"userId":   claims.UserID,
+		"username": leaveUsername,
+		"payload":  gin.H{"event": "leave", "text": leaveUsername + " left"},
+	})
 	h.wsHub.Broadcast(sessionID, leaveMsg)
 	conn.Close()
 }
@@ -317,16 +363,88 @@ func (h *SessionHandler) normalizeMessage(sessionID, userID string, raw []byte) 
 	}
 
 	outgoing := gin.H{
-		"type":    incoming.Type,
-		"userId":  userID,
-		"payload": incoming.Payload,
-		"sentAt":  time.Now().UnixMilli(),
+		"type":     incoming.Type,
+		"userId":   userID,
+		"username": h.lookupUsernameFromHex(userID),
+		"payload":  incoming.Payload,
+		"sentAt":   time.Now().UnixMilli(),
 	}
 	b, err := json.Marshal(outgoing)
 	if err != nil {
 		return nil
 	}
 	return b
+}
+
+func (h *SessionHandler) lookupUsername(userID primitive.ObjectID) string {
+	var user models.User
+	if err := h.db.Users().FindOne(context.TODO(), bson.M{"_id": userID}).Decode(&user); err == nil {
+		return user.Username
+	}
+	return "User"
+}
+
+func (h *SessionHandler) lookupUsernameFromHex(userID string) string {
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return "User"
+	}
+	return h.lookupUsername(oid)
+}
+
+func sessionMaxParticipants(session bson.M) int {
+	switch v := session["maxParticipants"].(type) {
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	case int:
+		return v
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+func (h *SessionHandler) enrichSession(session bson.M) bson.M {
+	if session == nil {
+		return bson.M{}
+	}
+
+	if hostID, ok := session["hostId"].(primitive.ObjectID); ok {
+		session["hostName"] = h.lookupUsername(hostID)
+	}
+
+	if parts, ok := session["participants"].(primitive.A); ok {
+		enriched := make(primitive.A, 0, len(parts))
+		for _, p := range parts {
+			doc, ok := p.(bson.M)
+			if !ok {
+				enriched = append(enriched, p)
+				continue
+			}
+			if _, has := doc["username"]; !has {
+				if uid, ok := doc["userId"].(primitive.ObjectID); ok {
+					doc["username"] = h.lookupUsername(uid)
+				}
+			}
+			enriched = append(enriched, doc)
+		}
+		session["participants"] = enriched
+	}
+
+	if session["currentParameters"] == nil {
+		session["currentParameters"] = bson.M{
+			"colors":     []string{"#FF6B6B", "#4ECDC4", "#45B7D1"},
+			"shapes":     []string{"circles"},
+			"pattern":    "spiral",
+			"complexity": 5,
+			"seed":       1,
+		}
+	}
+
+	return session
 }
 
 func extractWSToken(c *gin.Context, cookieName string) string {
