@@ -21,14 +21,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       try {
         const me = await api.getMe();
-        setCurrentUser(me);
+        if (!cancelled) setCurrentUser(me);
       } catch {
-        setCurrentUser(null);
+        if (!cancelled) setCurrentUser(null);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = async (payload: LoginPayload): Promise<AuthResult> => {

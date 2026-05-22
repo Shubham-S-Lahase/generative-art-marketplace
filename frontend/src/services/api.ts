@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { dedupedRequest } from './requestDedup';
 
 const client = axios.create({
   baseURL: '/api/v1',
@@ -26,8 +27,10 @@ const api = {
     return res.data;
   },
   async getMe() {
-    const res = await client.get('/users/me');
-    return res.data;
+    return dedupedRequest('users/me', async () => {
+      const res = await client.get('/users/me');
+      return res.data;
+    });
   },
 
   // Artworks
@@ -36,8 +39,10 @@ const api = {
     return res.data;
   },
   async getArtwork(id) {
-    const res = await client.get(`/artworks/${id}`);
-    return res.data;
+    return dedupedRequest(`artworks/${id}`, async () => {
+      const res = await client.get(`/artworks/${id}`);
+      return res.data;
+    });
   },
   async createArtwork(payload) {
     const res = await client.post('/artworks', payload);
@@ -70,8 +75,10 @@ const api = {
     return res.data;
   },
   async getComments(id) {
-    const res = await client.get(`/artworks/${id}/comments`);
-    return res.data;
+    return dedupedRequest(`artworks/${id}/comments`, async () => {
+      const res = await client.get(`/artworks/${id}/comments`);
+      return res.data;
+    });
   },
   async updateComment(artworkId, commentId, text) {
     const res = await client.put(`/artworks/${artworkId}/comments/${commentId}`, { text });
@@ -112,8 +119,10 @@ const api = {
     return res.data;
   },
   async getNotifications() {
-    const res = await client.get('/me/notifications');
-    return res.data;
+    return dedupedRequest('me/notifications', async () => {
+      const res = await client.get('/me/notifications');
+      return res.data;
+    });
   },
   async markNotificationAsRead(id) {
     const res = await client.post(`/me/notifications/${id}/read`);

@@ -32,19 +32,42 @@ const ArtworkDetail = () => {
   });
 
   useEffect(() => {
+    if (!id) return;
+
+    let cancelled = false;
+
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [art, comm] = await Promise.all([api.getArtwork(id), api.getComments(id)]);
+        if (cancelled) return;
+        setArtwork(art);
+        setComments(Array.isArray(comm) ? comm : []);
+      } catch (err) {
+        if (cancelled) return;
+        console.error(err);
+        setComments([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
     loadData();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const loadData = async () => {
+    if (!id) return;
     try {
       setLoading(true);
       const [art, comm] = await Promise.all([api.getArtwork(id), api.getComments(id)]);
       setArtwork(art);
-      // Ensure comments is always an array
       setComments(Array.isArray(comm) ? comm : []);
     } catch (err) {
       console.error(err);
-      setComments([]); // Set empty array on error
+      setComments([]);
     } finally {
       setLoading(false);
     }

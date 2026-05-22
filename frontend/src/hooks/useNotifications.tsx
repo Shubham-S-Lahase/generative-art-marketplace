@@ -29,7 +29,7 @@ export const useNotifications = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   useEffect(() => {
     loadNotifications();
