@@ -62,6 +62,8 @@ func main() {
 	wsHub := websocket.NewHub()
 	go wsHub.Run()
 
+	log.Println("Payments: mock checkout UI (development — no real gateway)")
+
 	routes.Register(r, db, wsHub, cfg, cloudinaryService)
 
 	if err := r.Run(":" + cfg.Port); err != nil {

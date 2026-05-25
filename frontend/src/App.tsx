@@ -5,11 +5,14 @@ import Gallery from './components/Gallery';
 import Dashboard from './components/Dashboard';
 import LiveSessions from './components/LiveSessions';
 import Marketplace from './components/Marketplace';
+import PurchaseHistory from './components/PurchaseHistory';
+import MyLicenses from './components/MyLicenses';
 import Profile from './components/Profile';
 import AuthModal from './components/AuthModal';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import NotificationSystem from './components/NotificationSystem';
+import NotificationBell from './components/NotificationBell';
 import ArtworkDetail from './components/ArtworkDetail';
 import { User, LogOut } from 'lucide-react';
 
@@ -25,6 +28,8 @@ const App = () => {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/sessions" element={<LiveSessions />} />
             <Route path="/marketplace" element={<Marketplace />} />
+            <Route path="/purchases" element={<PurchaseHistory />} />
+            <Route path="/licenses" element={<MyLicenses />} />
             <Route path="/profile/:username" element={<Profile />} />
           <Route path="/artwork/:id" element={<ArtworkDetail />} />
           </Routes>
@@ -73,14 +78,23 @@ const Header = () => {
             Live
           </Link>
           {currentUser && (
-            <Link to="/dashboard" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-              Dashboard
-            </Link>
+            <>
+              <Link to="/purchases" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                Purchases
+              </Link>
+              <Link to="/licenses" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                Licenses
+              </Link>
+              <Link to="/dashboard" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                Dashboard
+              </Link>
+            </>
           )}
         </nav>
         <div className="flex items-center space-x-4">
           {currentUser ? (
             <>
+              <NotificationBell />
               <Link
                 to={`/profile/${currentUser.username}`}
                 className="flex items-center space-x-2 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"

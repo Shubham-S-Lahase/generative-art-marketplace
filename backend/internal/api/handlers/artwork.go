@@ -1048,55 +1048,6 @@ func collectCommentDescendants(comments []models.Comment, parentID primitive.Obj
 	return ids
 }
 
-// PurchaseArtwork records a purchase (mock payment).
-func (h *ArtworkHandler) PurchaseArtwork(c *gin.Context) {
-	artworkID := c.Param("id")
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
-	objectID, err := primitive.ObjectIDFromHex(artworkID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid artwork ID"})
-		return
-	}
-
-	var req struct {
-		License string `json:"license" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	var art models.Artwork
-	if err := h.db.Artworks().FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&art); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Artwork not found"})
-		return
-	}
-
-	purchase := models.Purchase{
-		ArtworkID: objectID,
-		BuyerID:   userID.(primitive.ObjectID),
-		License:   req.License,
-		Amount:    art.Marketplace.Price,
-		CreatedAt: time.Now(),
-	}
-
-	if _, err := h.db.Purchases().InsertOne(context.TODO(), purchase); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record purchase"})
-		return
-	}
-
-	if art.UserID != userID.(primitive.ObjectID) {
-		src := objectID
-		createNotification(h.db, art.UserID, "purchase", "Artwork purchased", art.Title+" was purchased", &src)
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Purchase recorded", "amount": purchase.Amount})
-}
-
 // BookmarkArtwork adds a bookmark for the current user.
 func (h *ArtworkHandler) BookmarkArtwork(c *gin.Context) {
 	artworkID := c.Param("id")

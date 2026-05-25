@@ -103,8 +103,36 @@ const api = {
     const res = await client.delete(`/artworks/${artworkId}/comments/${commentId}/like`);
     return res.data;
   },
-  async purchaseArtwork(id, license) {
-    const res = await client.post(`/artworks/${id}/purchase`, { license });
+  async getCheckoutQuote(id, license) {
+    const res = await client.get(`/artworks/${id}/checkout-quote`, {
+      params: { license },
+    });
+    return res.data;
+  },
+  async purchaseArtwork(id, license, idempotencyKey = null) {
+    const body: { license: string; idempotencyKey?: string } = { license };
+    if (idempotencyKey) body.idempotencyKey = idempotencyKey;
+    const res = await client.post(`/artworks/${id}/purchase`, body);
+    return res.data;
+  },
+  async getMyPurchases() {
+    const res = await client.get('/me/purchases');
+    return res.data;
+  },
+  async getMySales() {
+    const res = await client.get('/me/sales');
+    return res.data;
+  },
+  async getMyLicenses() {
+    const res = await client.get('/me/licenses');
+    return res.data;
+  },
+  async getArtworkOwnership(id) {
+    const res = await client.get(`/artworks/${id}/ownership`);
+    return res.data;
+  },
+  async downloadArtwork(id) {
+    const res = await client.get(`/artworks/${id}/download`);
     return res.data;
   },
   async generatePreview(parameters) {

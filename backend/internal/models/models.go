@@ -162,12 +162,13 @@ type Session struct {
 }
 
 type Purchase struct {
-	ID             primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	ArtworkID      primitive.ObjectID `bson:"artworkId" json:"artworkId"`
-	BuyerID        primitive.ObjectID `bson:"buyerId" json:"buyerId"`
-	License        string             `bson:"license" json:"license"`
-	Amount         float64            `bson:"amount" json:"amount"`
-	TransactionRef string             `bson:"transactionRef,omitempty" json:"transactionRef,omitempty"`
-	CreatedAt      time.Time          `bson:"createdAt" json:"createdAt"`
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ArtworkID       primitive.ObjectID `bson:"artworkId" json:"artworkId"`
+	BuyerID         primitive.ObjectID `bson:"buyerId" json:"buyerId"`
+	License         string             `bson:"license" json:"license"`
+	Amount          float64            `bson:"amount" json:"amount"`
+	TransactionRef  string             `bson:"transactionRef,omitempty" json:"transactionRef,omitempty"`
+	IdempotencyKey  string             `bson:"idempotencyKey,omitempty" json:"idempotencyKey,omitempty"`
+	CreatedAt       time.Time          `bson:"createdAt" json:"createdAt"`
 }
 

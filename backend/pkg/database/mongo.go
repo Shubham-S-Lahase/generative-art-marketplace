@@ -45,6 +45,27 @@ func (db *MongoDB) ensureIndexes(ctx context.Context) {
 	if err != nil {
 		log.Printf("artwork_views index: %v", err)
 	}
+	_, err = db.Purchases().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"transactionRef": 1},
+		Options: options.Index().SetUnique(true).SetSparse(true),
+	})
+	if err != nil {
+		log.Printf("purchases transactionRef index: %v", err)
+	}
+	_, err = db.Purchases().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"buyerId": 1, "artworkId": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		log.Printf("purchases buyer artwork index: %v", err)
+	}
+	_, err = db.Purchases().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"idempotencyKey": 1},
+		Options: options.Index().SetUnique(true).SetSparse(true),
+	})
+	if err != nil {
+		log.Printf("purchases idempotencyKey index: %v", err)
+	}
 }
 
 func (db *MongoDB) Close(ctx context.Context) error {

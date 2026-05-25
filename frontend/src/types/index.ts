@@ -171,6 +171,33 @@ export interface DashboardStats {
   totalRevenue?: number;
 }
 
+export interface PurchaseRecord {
+  id?: string;
+  _id?: string;
+  artworkId?: string;
+  buyerId?: string;
+  license?: string;
+  licenseTerms?: string;
+  amount?: number;
+  transactionRef?: string;
+  createdAt?: string;
+  buyerUsername?: string;
+  artwork?: {
+    id?: string;
+    title?: string;
+    previewUrl?: string;
+    imageUrl?: string;
+    username?: string;
+    marketplace?: ArtworkMarketplace;
+  };
+}
+
+export interface ArtworkOwnership {
+  owned: boolean;
+  license?: string;
+  terms?: string;
+}
+
 export interface ArtPreset {
   id: string;
   name: string;

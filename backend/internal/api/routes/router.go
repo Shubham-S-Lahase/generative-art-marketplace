@@ -14,6 +14,7 @@ import (
 // Register attaches all REST and WebSocket routes to Gin engine.
 func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *config.Config, cloudinaryService *cloudinary.Service) {
 	artworkHandler := handlers.NewArtworkHandler(db, cfg, cloudinaryService)
+	marketplaceHandler := handlers.NewMarketplaceHandler(db, cfg)
 	sessionHandler := handlers.NewSessionHandler(db, wsHub, cfg)
 	userHandler := handlers.NewUserHandler(db, cfg, cloudinaryService)
 	authHandler := handlers.NewAuthHandler(db, cfg)
@@ -33,6 +34,7 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	api.GET("/artworks/featured", artworkHandler.GetFeaturedArtworks)
 	api.GET("/artworks/trending", artworkHandler.GetTrendingArtworks)
 	api.GET("/artworks/search", artworkHandler.SearchArtworks)
+	api.GET("/artworks/:id/ownership", middleware.OptionalAuthMiddleware(cfg), marketplaceHandler.GetArtworkOwnership)
 
 	api.GET("/users/:username", middleware.OptionalAuthMiddleware(cfg), userHandler.GetUserProfile)
 	api.GET("/users/:username/artworks", middleware.OptionalAuthMiddleware(cfg), userHandler.GetUserArtworks)
@@ -60,7 +62,12 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	protected.DELETE("/artworks/:id/comments/:commentId/like", artworkHandler.UnlikeComment)
 	protected.POST("/artworks/:id/bookmark", artworkHandler.BookmarkArtwork)
 	protected.DELETE("/artworks/:id/bookmark", artworkHandler.UnbookmarkArtwork)
-	protected.POST("/artworks/:id/purchase", artworkHandler.PurchaseArtwork)
+	protected.GET("/artworks/:id/checkout-quote", marketplaceHandler.GetCheckoutQuote)
+	protected.POST("/artworks/:id/purchase", marketplaceHandler.PurchaseArtwork)
+	protected.GET("/artworks/:id/download", marketplaceHandler.DownloadArtwork)
+	protected.GET("/me/purchases", marketplaceHandler.GetMyPurchases)
+	protected.GET("/me/sales", marketplaceHandler.GetMySales)
+	protected.GET("/me/licenses", marketplaceHandler.GetMyLicenses)
 
 	// Users
 	protected.GET("/users/me", userHandler.GetMe)

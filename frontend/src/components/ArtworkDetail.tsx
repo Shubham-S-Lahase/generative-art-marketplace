@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Heart, MessageCircle, Share2, ArrowLeft, Edit, X, Save } from 'lucide-react';
+import { Heart, MessageCircle, Share2, ArrowLeft, Edit, X, Save, ShoppingCart, Shield, Download } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { getImageUrl } from '../utils/helpers';
 import { buildCommentTree, commentId } from '../utils/comments';
 import CommentItem from './CommentItem';
+import MockCheckoutModal from './MockCheckoutModal';
+import { isSameUser } from '../utils/userId';
 
 const ArtworkDetail = () => {
   const { id } = useParams();
@@ -20,6 +22,8 @@ const ArtworkDetail = () => {
   const [loading, setLoading] = useState(true);
   const [liking, setLiking] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [ownership, setOwnership] = useState({ owned: false, license: '', terms: '' });
+  const [checkoutLicense, setCheckoutLicense] = useState(null);
   const [editData, setEditData] = useState({
     title: '',
     description: '',
@@ -27,9 +31,12 @@ const ArtworkDetail = () => {
     isPublic: true,
     marketplace: {
       forSale: false,
-      price: 0
-    }
+      price: 0,
+      licensing: ['personal', 'commercial'] as string[],
+    },
   });
+
+  const LICENSE_OPTIONS = ['personal', 'commercial', 'exclusive'];
 
   useEffect(() => {
     if (!id) return;
@@ -43,6 +50,15 @@ const ArtworkDetail = () => {
         if (cancelled) return;
         setArtwork(art);
         setComments(Array.isArray(comm) ? comm : []);
+
+        if (currentUser) {
+          try {
+            const own = await api.getArtworkOwnership(id);
+            if (!cancelled) setOwnership(own);
+          } catch {
+            if (!cancelled) setOwnership({ owned: false, license: '', terms: '' });
+          }
+        }
 
         const viewKey = `artwork-view:${id}`;
         if (!sessionStorage.getItem(viewKey)) {
@@ -206,8 +222,12 @@ const ArtworkDetail = () => {
       isPublic: artwork.isPublic !== false,
       marketplace: {
         forSale: artwork.marketplace?.forSale || false,
-        price: artwork.marketplace?.price || 0
-      }
+        price: artwork.marketplace?.price || 0,
+        licensing:
+          Array.isArray(artwork.marketplace?.licensing) && artwork.marketplace.licensing.length > 0
+            ? artwork.marketplace.licensing
+            : ['standard'],
+      },
     });
     setIsEditing(true);
   };
@@ -235,6 +255,40 @@ const ArtworkDetail = () => {
 
   const handleCancelEdit = () => {
     setIsEditing(false);
+  };
+
+  const toggleEditLicense = (license: string) => {
+    setEditData((prev) => {
+      const current = prev.marketplace.licensing || [];
+      const next = current.includes(license)
+        ? current.filter((l) => l !== license)
+        : [...current, license];
+      return {
+        ...prev,
+        marketplace: {
+          ...prev.marketplace,
+          licensing: next.length > 0 ? next : ['standard'],
+        },
+      };
+    });
+  };
+
+  const handleBuy = (license: string) => {
+    if (!currentUser || !id) return;
+    if (isSameUser(artwork?.userId, currentUser)) {
+      alert('You cannot purchase your own artwork.');
+      return;
+    }
+    setCheckoutLicense(license);
+  };
+
+  const handleDownload = async () => {
+    try {
+      const res = await api.downloadArtwork(id);
+      if (res.downloadUrl) window.open(res.downloadUrl, '_blank', 'noopener,noreferrer');
+    } catch {
+      alert('Download not available');
+    }
   };
 
   const isOwner = currentUser && artwork && (currentUser.id === artwork.userId || currentUser._id === artwork.userId);
@@ -321,20 +375,45 @@ const ArtworkDetail = () => {
                         <label htmlFor="forSale" className="text-sm text-gray-700 dark:text-gray-300">List for sale</label>
                       </div>
                       {editData.marketplace.forSale && (
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price ($)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={editData.marketplace.price}
-                            onChange={(e) => setEditData({ 
-                              ...editData, 
-                              marketplace: { ...editData.marketplace, price: parseFloat(e.target.value) || 0 }
-                            })}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                          />
-                        </div>
+                        <>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price ($)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={editData.marketplace.price}
+                              onChange={(e) =>
+                                setEditData({
+                                  ...editData,
+                                  marketplace: {
+                                    ...editData.marketplace,
+                                    price: parseFloat(e.target.value) || 0,
+                                  },
+                                })
+                              }
+                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              Offered licenses
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              {LICENSE_OPTIONS.map((lic) => (
+                                <label key={lic} className="flex items-center gap-1 text-sm capitalize">
+                                  <input
+                                    type="checkbox"
+                                    checked={editData.marketplace.licensing?.includes(lic)}
+                                    onChange={() => toggleEditLicense(lic)}
+                                    className="rounded"
+                                  />
+                                  {lic}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
@@ -396,6 +475,51 @@ const ArtworkDetail = () => {
                 <pre className="bg-gray-100 dark:bg-gray-900 text-xs p-3 rounded">{JSON.stringify(artwork.parameters, null, 2)}</pre>
               </div>
 
+              {ownership.owned && (
+                <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                  <div className="flex items-center gap-2 text-green-800 dark:text-green-300 font-medium">
+                    <Shield className="h-5 w-5" />
+                    Licensed — {ownership.license}
+                    {ownership.terms ? ` — ${ownership.terms.slice(0, 100)}${ownership.terms.length > 100 ? '…' : ''}` : ''}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="mt-3 inline-flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
+                  >
+                    <Download className="h-4 w-4" /> Download
+                  </button>
+                </div>
+              )}
+
+              {!isOwner &&
+                !isSameUser(artwork.userId, currentUser) &&
+                artwork.marketplace?.forSale &&
+                !ownership.owned &&
+                currentUser && (
+                <div className="p-4 border border-indigo-200 dark:border-indigo-800 rounded-lg">
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                    ${artwork.marketplace.price}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {(artwork.marketplace.licensing?.length
+                      ? artwork.marketplace.licensing
+                      : ['standard']
+                    ).map((lic) => (
+                      <button
+                        key={lic}
+                        type="button"
+                        onClick={() => handleBuy(lic)}
+                        className="inline-flex items-center gap-1 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 capitalize"
+                      >
+                        <ShoppingCart className="h-4 w-4" />
+                        Buy {lic}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="flex space-x-2">
                 <button onClick={handleRemix} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">
                   Remix
@@ -404,6 +528,25 @@ const ArtworkDetail = () => {
             </div>
           </div>
         </div>
+
+        {checkoutLicense && artwork && (
+          <MockCheckoutModal
+            artwork={{
+              id: artwork.id || artwork._id || id,
+              title: artwork.title,
+              previewUrl: artwork.previewUrl,
+              imageUrl: artwork.imageUrl,
+              marketplace: artwork.marketplace,
+            }}
+            license={checkoutLicense}
+            onClose={() => setCheckoutLicense(null)}
+            onSuccess={async () => {
+              const own = await api.getArtworkOwnership(id);
+              setOwnership(own);
+              alert('Purchase successful!');
+            }}
+          />
+        )}
 
         <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
           <h3 className="text-lg font-semibold mb-3 text-gray-900 dark:text-white">

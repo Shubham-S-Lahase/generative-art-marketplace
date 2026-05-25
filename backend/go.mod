@@ -7,6 +7,7 @@ require (
 	github.com/gin-contrib/cors v1.5.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt/v5 v5.2.0
+	github.com/google/uuid v1.2.0
 	github.com/gorilla/websocket v1.5.1
 	github.com/joho/godotenv v1.5.1
 	go.mongodb.org/mongo-driver v1.13.1
@@ -26,7 +27,6 @@ require (
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
-	github.com/google/uuid v1.2.0 // indirect
 	github.com/gorilla/schema v1.2.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect

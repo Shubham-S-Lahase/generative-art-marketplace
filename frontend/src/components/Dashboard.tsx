@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
 import { getImageUrl } from '../utils/helpers';
 import PerformanceChart from './PerformanceChart';
+import type { PurchaseRecord } from '../types';
 
 const Dashboard = () => {
   const { currentUser } = useAuth();
@@ -19,6 +20,7 @@ const Dashboard = () => {
   });
   const [recentArtworks, setRecentArtworks] = useState([]);
   const [chartData, setChartData] = useState([]);
+  const [sales, setSales] = useState<PurchaseRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,10 +32,11 @@ const Dashboard = () => {
   const loadDashboardData = async () => {
     try {
       const userId = currentUser.id || currentUser._id;
-      const [statsRes, artworksRes, analyticsRes] = await Promise.all([
+      const [statsRes, artworksRes, analyticsRes, salesRes] = await Promise.all([
         api.getDashboard(),
         api.getArtworks({ userId }),
         api.getAnalytics(),
+        api.getMySales(),
       ]);
       // Ensure all stats fields have default values
       setStats({
@@ -66,6 +69,7 @@ const Dashboard = () => {
             }))
           : []
       );
+      setSales(Array.isArray(salesRes) ? salesRes.slice(0, 10) : []);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       // Set default stats on error
@@ -78,6 +82,7 @@ const Dashboard = () => {
         totalRevenue: 0,
       });
       setChartData([]);
+      setSales([]);
     } finally {
       setLoading(false);
     }
@@ -293,6 +298,58 @@ const Dashboard = () => {
               />
             </div>
           </div>
+        </div>
+
+        {/* Recent sales */}
+        <div className="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Recent Sales</h3>
+          {sales.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead>
+                  <tr className="text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                    <th className="py-2 pr-4">Artwork</th>
+                    <th className="py-2 pr-4">Buyer</th>
+                    <th className="py-2 pr-4">License</th>
+                    <th className="py-2 pr-4">Amount</th>
+                    <th className="py-2">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sales.map((sale) => (
+                    <tr
+                      key={sale.id || sale._id}
+                      className="border-b border-gray-100 dark:border-gray-700 last:border-0"
+                    >
+                      <td className="py-3 pr-4 text-gray-900 dark:text-white">
+                        {sale.artwork?.title || 'Artwork'}
+                      </td>
+                      <td className="py-3 pr-4 text-gray-600 dark:text-gray-300 capitalize">
+                        {sale.buyerUsername || '—'}
+                      </td>
+                      <td className="py-3 pr-4 capitalize">{sale.license}</td>
+                      <td className="py-3 pr-4">${sale.amount?.toFixed(2)}</td>
+                      <td className="py-3 text-gray-500">
+                        {sale.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-600 dark:text-gray-300 text-sm">
+              No sales yet. List artworks on the{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/marketplace')}
+                className="text-indigo-600 hover:underline"
+              >
+                Marketplace
+              </button>{' '}
+              to start earning.
+            </p>
+          )}
         </div>
 
         {/* Tips when portfolio is small */}

@@ -128,7 +128,6 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		return
 	}
 
-	user.Password = ""
 	c.JSON(http.StatusOK, h.buildProfileResponse(c, user))
 }
 
@@ -383,20 +382,21 @@ func (h *UserHandler) GetNotifications(c *gin.Context) {
 		return
 	}
 
-	cursor, err := h.db.Notifications().Find(context.TODO(), bson.M{"userId": userID})
+	opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetLimit(50)
+	cursor, err := h.db.Notifications().Find(context.TODO(), bson.M{"userId": userID}, opts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch notifications"})
 		return
 	}
 	defer cursor.Close(context.TODO())
 
-	var notifications []bson.M
+	var notifications []models.Notification
 	if err = cursor.All(context.TODO(), &notifications); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode notifications"})
 		return
 	}
 
-	c.JSON(http.StatusOK, notifications)
+	c.JSON(http.StatusOK, formatNotificationsForAPI(notifications))
 }
 
 func (h *UserHandler) MarkNotificationAsRead(c *gin.Context) {
@@ -435,7 +435,13 @@ func (h *UserHandler) MarkAllNotificationsAsRead(c *gin.Context) {
 
 	_, err := h.db.Notifications().UpdateMany(
 		context.TODO(),
-		bson.M{"userId": userID, "isRead": false},
+		bson.M{
+			"userId": userID,
+			"$or": []bson.M{
+				{"isRead": false},
+				{"isRead": bson.M{"$exists": false}},
+			},
+		},
 		bson.M{"$set": bson.M{"isRead": true}},
 	)
 	if err != nil {
@@ -550,7 +556,6 @@ func (h *UserHandler) computeUserStats(userID primitive.ObjectID) gin.H {
 }
 
 func (h *UserHandler) buildProfileResponse(c *gin.Context, user models.User) gin.H {
-	user.Password = ""
 	stats := h.computeUserStats(user.ID)
 
 	resp := gin.H{
