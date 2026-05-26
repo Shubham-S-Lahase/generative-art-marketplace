@@ -103,6 +103,15 @@ const LiveSessions = () => {
     loadSessions();
   }, []);
 
+  useEffect(() => {
+    const onLogout = () => {
+      disconnect();
+      setSelectedSessionId(null);
+    };
+    window.addEventListener('auth:logout', onLogout);
+    return () => window.removeEventListener('auth:logout', onLogout);
+  }, [disconnect]);
+
   const latestParticipantEvent = useMemo(() => {
     const m = messages.find(
       (msg) =>
@@ -474,21 +483,10 @@ const LiveSessions = () => {
                 ))}
               </div>
 
-              <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                <div className="text-xs text-gray-500 mb-2">Current style</div>
-                <div className="flex items-center gap-2">
-                  <div className="flex gap-1">
-                    {(session.currentParameters.colors || []).map((color, i) => (
-                      <span
-                        key={i}
-                        className="w-4 h-4 rounded-full border border-gray-300"
-                        style={{ backgroundColor: color }}
-                      />
-                    ))}
-                  </div>
-                  <span className="text-sm capitalize text-gray-700 dark:text-gray-300">
-                    {session.currentParameters.pattern}
-                  </span>
+              <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden">
+                <div className="text-xs text-gray-500 mb-2">Live preview</div>
+                <div className="h-28 rounded border border-gray-200 dark:border-gray-600 overflow-hidden">
+                  <SessionArtCanvas parameters={session.currentParameters} compact />
                 </div>
               </div>
 
@@ -585,9 +583,10 @@ const LiveSessions = () => {
                   min={2}
                   max={50}
                   value={createForm.maxParticipants}
-                  onChange={(e) =>
-                    setCreateForm((f) => ({ ...f, maxParticipants: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setCreateForm((f) => ({ ...f, maxParticipants: Number.isNaN(n) ? 10 : n }));
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                 />
               </div>

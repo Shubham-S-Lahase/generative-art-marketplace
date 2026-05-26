@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { buildGetCacheKey, dedupedRequest } from './requestDedup';
+import { buildGetCacheKey, clearDedupCache, dedupedRequest } from './requestDedup';
+import { normalizeArtworkList, type ArtworkListResult } from '../utils/artworks';
 
 const client = axios.create({
   baseURL: '/api/v1',
@@ -26,6 +27,19 @@ const api = {
     const res = await client.post('/auth/login', data);
     return res.data;
   },
+  async logout() {
+    const res = await client.post('/auth/logout');
+    clearDedupCache();
+    return res.data;
+  },
+  async forgotPassword(email) {
+    const res = await client.post('/auth/forgot-password', { email });
+    return res.data;
+  },
+  async resetPassword(token, password) {
+    const res = await client.post('/auth/reset-password', { token, password });
+    return res.data;
+  },
   async getMe() {
     return dedupedRequest('users/me', async () => {
       const res = await client.get('/users/me');
@@ -34,12 +48,20 @@ const api = {
   },
 
   // Artworks
-  async getArtworks(params = {}) {
+  async getArtworks(params = {}): Promise<ArtworkListResult> {
     const key = buildGetCacheKey('artworks', params);
     return dedupedRequest(key, async () => {
       const res = await client.get('/artworks', { params });
-      return res.data;
+      return normalizeArtworkList(res.data);
     });
+  },
+  async getTrendingArtworks(limit = 20) {
+    const res = await client.get('/artworks/trending', { params: { limit } });
+    return res.data;
+  },
+  async getFeaturedArtworks(limit = 20) {
+    const res = await client.get('/artworks/featured', { params: { limit } });
+    return res.data;
   },
   async getArtwork(id) {
     return dedupedRequest(`artworks/${id}`, async () => {
@@ -151,6 +173,10 @@ const api = {
     const res = await client.put('/users/me', payload);
     return res.data;
   },
+  async deleteAccount(password) {
+    const res = await client.delete('/users/me', { data: { password } });
+    return res.data;
+  },
   async getUserLikedArtworks(username) {
     const res = await client.get(`/users/${username}/liked`);
     return res.data;
@@ -191,6 +217,42 @@ const api = {
   },
   async getAnalytics() {
     const res = await client.get('/me/analytics');
+    return res.data;
+  },
+  async exportAnalytics() {
+    const res = await client.get('/me/analytics/export', { responseType: 'blob' });
+    return res.data;
+  },
+  async getMyBookmarkIds() {
+    const res = await client.get('/me/bookmarks');
+    return res.data?.artworkIds || [];
+  },
+  async getNotificationPrefs() {
+    const res = await client.get('/me/notification-prefs');
+    return res.data;
+  },
+  async updateNotificationPrefs(prefs) {
+    const res = await client.put('/me/notification-prefs', prefs);
+    return res.data;
+  },
+  async getPresets() {
+    const res = await client.get('/presets');
+    return res.data;
+  },
+  async createPreset(payload) {
+    const res = await client.post('/presets', payload);
+    return res.data;
+  },
+  async deletePreset(id) {
+    const res = await client.delete(`/presets/${id}`);
+    return res.data;
+  },
+  async submitReport(payload) {
+    const res = await client.post('/reports', payload);
+    return res.data;
+  },
+  async healthCheck() {
+    const res = await client.get('/health');
     return res.data;
   },
 

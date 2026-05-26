@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Heart, MessageCircle, Share2, ArrowLeft, Edit, X, Save, ShoppingCart, Shield, Download } from 'lucide-react';
+import { Heart, MessageCircle, Share2, ArrowLeft, Edit, X, Save, ShoppingCart, Shield, Download, Flag, BadgeCheck } from 'lucide-react';
+import { usePageMeta } from '../hooks/usePageMeta';
 import api from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { getImageUrl } from '../utils/helpers';
@@ -211,8 +212,37 @@ const ArtworkDetail = () => {
   };
 
   const handleRemix = () => {
-    navigate('/create', { state: { parameters: artwork.parameters, title: `Remix of ${artwork.title}` } });
+    navigate('/create', {
+      state: {
+        parameters: artwork.parameters,
+        title: `Remix of ${artwork.title}`,
+        remixOf: artwork.id || artwork._id,
+      },
+    });
   };
+
+  const handleReport = async () => {
+    if (!currentUser) return;
+    const reason = window.prompt('Why are you reporting this artwork?', 'inappropriate');
+    if (!reason) return;
+    try {
+      await api.submitReport({
+        targetType: 'artwork',
+        targetId: id,
+        reason,
+        details: '',
+      });
+      alert('Report submitted. Thank you.');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to submit report');
+    }
+  };
+
+  usePageMeta({
+    title: artwork?.title,
+    description: artwork?.description?.slice(0, 160),
+    image: artwork ? getImageUrl(artwork.previewUrl || artwork.imageUrl) : undefined,
+  });
 
   const handleEdit = () => {
     setEditData({
@@ -438,7 +468,19 @@ const ArtworkDetail = () => {
                 <>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{artwork.title}</h1>
+                      <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2 flex-wrap">
+                        {artwork.title}
+                        {artwork.isVerified && (
+                          <span className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400">
+                            <BadgeCheck className="h-5 w-5" /> Verified
+                          </span>
+                        )}
+                      </h1>
+                      {artwork.remixOfTitle && (
+                        <p className="text-sm text-indigo-600 dark:text-indigo-400 mt-1">
+                          Remix of {artwork.remixOfTitle}
+                        </p>
+                      )}
                       <p className="text-gray-600 dark:text-gray-300 mt-2">{artwork.description}</p>
                     </div>
                     {isOwner && (
@@ -468,6 +510,15 @@ const ArtworkDetail = () => {
                 <button className="flex items-center space-x-1 text-gray-700 dark:text-gray-200" onClick={() => navigator.share?.({ title: artwork.title, url: window.location.href })}>
                   <Share2 className="h-5 w-5" /> <span>Share</span>
                 </button>
+                {currentUser && !isOwner && (
+                  <button
+                    type="button"
+                    onClick={handleReport}
+                    className="flex items-center space-x-1 text-gray-500 hover:text-red-600"
+                  >
+                    <Flag className="h-5 w-5" /> <span>Report</span>
+                  </button>
+                )}
               </div>
 
               <div>

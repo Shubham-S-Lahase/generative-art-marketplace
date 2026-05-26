@@ -84,4 +84,7 @@ func (db *MongoDB) Notifications() *mongo.Collection { return db.Database.Collec
 func (db *MongoDB) Sessions() *mongo.Collection      { return db.Database.Collection("sessions") }
 func (db *MongoDB) Purchases() *mongo.Collection     { return db.Database.Collection("purchases") }
 func (db *MongoDB) ArtworkViews() *mongo.Collection  { return db.Database.Collection("artwork_views") }
+func (db *MongoDB) Presets() *mongo.Collection         { return db.Database.Collection("presets") }
+func (db *MongoDB) Reports() *mongo.Collection         { return db.Database.Collection("reports") }
+func (db *MongoDB) PasswordResets() *mongo.Collection  { return db.Database.Collection("password_resets") }
 

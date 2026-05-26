@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"time"
+
 	"generative-art-marketplace/internal/api/handlers"
 	"generative-art-marketplace/internal/api/middleware"
 	"generative-art-marketplace/internal/config"
@@ -18,23 +20,36 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	sessionHandler := handlers.NewSessionHandler(db, wsHub, cfg)
 	userHandler := handlers.NewUserHandler(db, cfg, cloudinaryService)
 	authHandler := handlers.NewAuthHandler(db, cfg)
+	reportHandler := handlers.NewReportHandler(db)
+	presetHandler := handlers.NewPresetHandler(db)
+	miscHandler := handlers.NewMiscHandler(db)
+
+	rateLimit := middleware.RateLimit(120, time.Minute)
 
 	api := r.Group("/api/v1")
+	api.Use(rateLimit)
+
+	api.GET("/health", miscHandler.Health)
 
 	// Auth
 	api.POST("/auth/register", authHandler.Register)
 	api.POST("/auth/login", authHandler.Login)
+	api.POST("/auth/logout", authHandler.Logout)
+	api.POST("/auth/forgot-password", authHandler.ForgotPassword)
+	api.POST("/auth/reset-password", authHandler.ResetPassword)
 
-	// Public data
-	api.GET("/artworks", artworkHandler.GetArtworks)
-	api.GET("/artworks/:id", artworkHandler.GetArtwork)
-	api.POST("/artworks/:id/view", middleware.OptionalAuthMiddleware(cfg), artworkHandler.RecordArtworkView)
+	// Public data (static artwork paths before :id)
+	api.GET("/artworks", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetArtworks)
+	api.GET("/artworks/featured", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetFeaturedArtworks)
+	api.GET("/artworks/trending", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetTrendingArtworks)
+	api.GET("/artworks/search", middleware.OptionalAuthMiddleware(cfg), artworkHandler.SearchArtworks)
 	api.POST("/artworks/generate", artworkHandler.GeneratePreview)
+	api.GET("/artworks/:id", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetArtwork)
+	api.POST("/artworks/:id/view", middleware.OptionalAuthMiddleware(cfg), artworkHandler.RecordArtworkView)
 	api.GET("/artworks/:id/comments", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetComments)
-	api.GET("/artworks/featured", artworkHandler.GetFeaturedArtworks)
-	api.GET("/artworks/trending", artworkHandler.GetTrendingArtworks)
-	api.GET("/artworks/search", artworkHandler.SearchArtworks)
 	api.GET("/artworks/:id/ownership", middleware.OptionalAuthMiddleware(cfg), marketplaceHandler.GetArtworkOwnership)
+
+	api.GET("/presets", middleware.OptionalAuthMiddleware(cfg), presetHandler.ListPresets)
 
 	api.GET("/users/:username", middleware.OptionalAuthMiddleware(cfg), userHandler.GetUserProfile)
 	api.GET("/users/:username/artworks", middleware.OptionalAuthMiddleware(cfg), userHandler.GetUserArtworks)
@@ -48,6 +63,8 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	// Protected routes
 	protected := api.Group("/")
 	protected.Use(middleware.AuthMiddleware(cfg))
+
+	protected.GET("/auth/ping", authHandler.Ping)
 
 	// Artworks
 	protected.POST("/artworks", artworkHandler.CreateArtwork)
@@ -68,10 +85,12 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	protected.GET("/me/purchases", marketplaceHandler.GetMyPurchases)
 	protected.GET("/me/sales", marketplaceHandler.GetMySales)
 	protected.GET("/me/licenses", marketplaceHandler.GetMyLicenses)
+	protected.GET("/me/bookmarks", userHandler.GetMyBookmarks)
 
 	// Users
 	protected.GET("/users/me", userHandler.GetMe)
 	protected.PUT("/users/me", userHandler.UpdateProfile)
+	protected.DELETE("/users/me", userHandler.DeleteAccount)
 	protected.POST("/users/:id/follow", userHandler.FollowUser)
 	protected.DELETE("/users/:id/follow", userHandler.UnfollowUser)
 	protected.GET("/me/following", userHandler.GetFollowing)
@@ -79,8 +98,16 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	protected.GET("/me/notifications", userHandler.GetNotifications)
 	protected.POST("/me/notifications/:id/read", userHandler.MarkNotificationAsRead)
 	protected.POST("/me/notifications/read-all", userHandler.MarkAllNotificationsAsRead)
+	protected.GET("/me/notification-prefs", userHandler.GetNotificationPrefs)
+	protected.PUT("/me/notification-prefs", userHandler.UpdateNotificationPrefs)
 	protected.GET("/me/dashboard", userHandler.GetDashboardStats)
 	protected.GET("/me/analytics", userHandler.GetAnalytics)
+	protected.GET("/me/analytics/export", userHandler.ExportAnalytics)
+
+	protected.POST("/reports", reportHandler.CreateReport)
+
+	protected.POST("/presets", presetHandler.CreatePreset)
+	protected.DELETE("/presets/:id", presetHandler.DeletePreset)
 
 	// Sessions
 	protected.POST("/sessions", sessionHandler.CreateSession)
@@ -93,4 +120,3 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 		sessionHandler.HandleWebSocket(c)
 	})
 }
-

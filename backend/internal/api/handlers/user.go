@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"generative-art-marketplace/pkg/generator"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -55,6 +57,8 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		"bio":       strings.TrimSpace(req.Bio),
 		"location":  strings.TrimSpace(req.Location),
 		"website":   strings.TrimSpace(req.Website),
+		"twitter":   strings.TrimSpace(req.Twitter),
+		"instagram": strings.TrimSpace(req.Instagram),
 		"updatedAt": time.Now(),
 	}
 
@@ -108,6 +112,213 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, h.buildProfileResponse(c, user))
+}
+
+// DeleteAccount permanently removes the authenticated user and their personal data.
+// Artworks with existing purchases are kept so buyers retain access.
+func (h *UserHandler) DeleteAccount(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	uid := userIDVal.(primitive.ObjectID)
+
+	var req models.DeleteAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var user models.User
+	if err := h.db.Users().FindOne(context.TODO(), bson.M{"_id": uid}).Decode(&user); err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
+		return
+	}
+
+	if err := h.purgeUserData(context.TODO(), uid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
+		return
+	}
+
+	if _, err := h.db.Users().DeleteOne(context.TODO(), bson.M{"_id": uid}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
+		return
+	}
+
+	clearAuthCookie(c, h.cfg)
+	c.JSON(http.StatusOK, gin.H{"message": "Account deleted successfully"})
+}
+
+func (h *UserHandler) purgeUserData(ctx context.Context, uid primitive.ObjectID) error {
+	artworkIDs, _ := h.getUserArtworkIDs(uid)
+	soldIDs, err := h.artworkIDsWithPurchases(ctx, artworkIDs)
+	if err != nil {
+		return err
+	}
+	soldSet := make(map[primitive.ObjectID]struct{}, len(soldIDs))
+	for _, id := range soldIDs {
+		soldSet[id] = struct{}{}
+	}
+
+	var deletable []primitive.ObjectID
+	var keep []primitive.ObjectID
+	for _, id := range artworkIDs {
+		if _, ok := soldSet[id]; ok {
+			keep = append(keep, id)
+		} else {
+			deletable = append(deletable, id)
+		}
+	}
+
+	if len(deletable) > 0 {
+		if err := h.deleteArtworksAndRelated(ctx, deletable); err != nil {
+			return err
+		}
+	}
+	if len(keep) > 0 {
+		_, _ = h.db.Artworks().UpdateMany(ctx, bson.M{"_id": bson.M{"$in": keep}}, bson.M{
+			"$set": bson.M{
+				"marketplace.forSale": false,
+				"updatedAt":         time.Now(),
+			},
+		})
+	}
+
+	if _, err := h.db.Purchases().DeleteMany(ctx, bson.M{"buyerId": uid}); err != nil {
+		return err
+	}
+	if _, err := h.db.Likes().DeleteMany(ctx, bson.M{"userId": uid}); err != nil {
+		return err
+	}
+	if _, err := h.db.Bookmarks().DeleteMany(ctx, bson.M{"userId": uid}); err != nil {
+		return err
+	}
+	if _, err := h.db.Comments().DeleteMany(ctx, bson.M{"userId": uid}); err != nil {
+		return err
+	}
+	if _, err := h.db.CommentLikes().DeleteMany(ctx, bson.M{"userId": uid}); err != nil {
+		return err
+	}
+	if _, err := h.db.Notifications().DeleteMany(ctx, bson.M{"userId": uid}); err != nil {
+		return err
+	}
+
+	if err := h.removeFollowRelations(ctx, uid); err != nil {
+		return err
+	}
+
+	if _, err := h.db.Sessions().DeleteMany(ctx, bson.M{"hostId": uid}); err != nil {
+		return err
+	}
+	_, _ = h.db.Sessions().UpdateMany(ctx, bson.M{}, bson.M{
+		"$pull": bson.M{"participants": bson.M{"userId": uid}},
+	})
+
+	return nil
+}
+
+func (h *UserHandler) artworkIDsWithPurchases(ctx context.Context, artworkIDs []primitive.ObjectID) ([]primitive.ObjectID, error) {
+	if len(artworkIDs) == 0 {
+		return nil, nil
+	}
+	cursor, err := h.db.Purchases().Find(ctx, bson.M{"artworkId": bson.M{"$in": artworkIDs}}, options.Find().SetProjection(bson.M{"artworkId": 1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	seen := make(map[primitive.ObjectID]struct{})
+	var sold []primitive.ObjectID
+	for cursor.Next(ctx) {
+		var doc struct {
+			ArtworkID primitive.ObjectID `bson:"artworkId"`
+		}
+		if err := cursor.Decode(&doc); err != nil {
+			continue
+		}
+		if _, ok := seen[doc.ArtworkID]; ok {
+			continue
+		}
+		seen[doc.ArtworkID] = struct{}{}
+		sold = append(sold, doc.ArtworkID)
+	}
+	return sold, cursor.Err()
+}
+
+func (h *UserHandler) deleteArtworksAndRelated(ctx context.Context, artworkIDs []primitive.ObjectID) error {
+	filter := bson.M{"artworkId": bson.M{"$in": artworkIDs}}
+	if _, err := h.db.Likes().DeleteMany(ctx, filter); err != nil {
+		return err
+	}
+	if _, err := h.db.Bookmarks().DeleteMany(ctx, filter); err != nil {
+		return err
+	}
+	if _, err := h.db.ArtworkViews().DeleteMany(ctx, filter); err != nil {
+		return err
+	}
+	if _, err := h.db.CommentLikes().DeleteMany(ctx, filter); err != nil {
+		return err
+	}
+	if _, err := h.db.Comments().DeleteMany(ctx, filter); err != nil {
+		return err
+	}
+	if _, err := h.db.Purchases().DeleteMany(ctx, bson.M{"artworkId": bson.M{"$in": artworkIDs}}); err != nil {
+		return err
+	}
+	_, err := h.db.Artworks().DeleteMany(ctx, bson.M{"_id": bson.M{"$in": artworkIDs}})
+	return err
+}
+
+func (h *UserHandler) removeFollowRelations(ctx context.Context, uid primitive.ObjectID) error {
+	cursor, err := h.db.Follows().Find(ctx, bson.M{"followerId": uid})
+	if err != nil {
+		return err
+	}
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var f models.Follow
+		if err := cursor.Decode(&f); err != nil {
+			continue
+		}
+		_, _ = h.db.Users().UpdateOne(ctx, bson.M{"_id": f.FolloweeID}, bson.M{"$inc": bson.M{"followersCount": -1}})
+	}
+	if err := cursor.Err(); err != nil {
+		return err
+	}
+
+	cursor, err = h.db.Follows().Find(ctx, bson.M{"followeeId": uid})
+	if err != nil {
+		return err
+	}
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var f models.Follow
+		if err := cursor.Decode(&f); err != nil {
+			continue
+		}
+		_, _ = h.db.Users().UpdateOne(ctx, bson.M{"_id": f.FollowerID}, bson.M{"$inc": bson.M{"followingCount": -1}})
+	}
+	if err := cursor.Err(); err != nil {
+		return err
+	}
+
+	_, err = h.db.Follows().DeleteMany(ctx, bson.M{
+		"$or": []bson.M{
+			{"followerId": uid},
+			{"followeeId": uid},
+		},
+	})
+	return err
 }
 
 // GetMe returns the authenticated user's profile.
@@ -509,12 +720,164 @@ func (h *UserHandler) GetAnalytics(c *gin.Context) {
 		})
 	}
 
+	viewsSeries := h.viewsTimeSeries(artworkIDs, 30)
+
+	likesCount, _ := h.db.Likes().CountDocuments(context.TODO(), bson.M{"artworkId": bson.M{"$in": artworkIDs}})
+	engagementRate := 0.0
+	if viewsSum := h.sumArtworkMetric(userID.(primitive.ObjectID), "metrics.views"); viewsSum > 0 {
+		engagementRate = float64(likesCount) / float64(viewsSum) * 100
+	}
+
 	analytics := gin.H{
-		"topArtworks": top,
-		"chartData":   chartData,
+		"topArtworks":    top,
+		"chartData":      chartData,
+		"viewsTimeSeries": viewsSeries,
+		"engagementRate": engagementRate,
 	}
 
 	c.JSON(http.StatusOK, analytics)
+}
+
+func (h *UserHandler) ExportAnalytics(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	artworkIDs, _ := h.getUserArtworkIDs(userID.(primitive.ObjectID))
+	cursor, err := h.db.Artworks().Find(context.TODO(), bson.M{"_id": bson.M{"$in": artworkIDs}})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export"})
+		return
+	}
+	defer cursor.Close(context.TODO())
+
+	var rows []models.Artwork
+	_ = cursor.All(context.TODO(), &rows)
+
+	var b strings.Builder
+	b.WriteString("title,views,likes,comments,createdAt\n")
+	for _, art := range rows {
+		b.WriteString(fmt.Sprintf("%q,%d,%d,%d,%s\n",
+			art.Title, art.Metrics.Views, art.Metrics.Likes, art.Metrics.Comments, art.CreatedAt.Format(time.RFC3339)))
+	}
+	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Disposition", "attachment; filename=analytics.csv")
+	c.String(http.StatusOK, b.String())
+}
+
+func (h *UserHandler) viewsTimeSeries(artworkIDs []primitive.ObjectID, days int) []gin.H {
+	if len(artworkIDs) == 0 {
+		return []gin.H{}
+	}
+	since := time.Now().AddDate(0, 0, -days)
+	pipeline := []bson.M{
+		{"$match": bson.M{
+			"artworkId": bson.M{"$in": artworkIDs},
+			"createdAt": bson.M{"$gte": since},
+		}},
+		{"$group": bson.M{
+			"_id":   bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$createdAt"}},
+			"views": bson.M{"$sum": 1},
+		}},
+		{"$sort": bson.M{"_id": 1}},
+	}
+	cursor, err := h.db.ArtworkViews().Aggregate(context.TODO(), pipeline)
+	if err != nil {
+		return []gin.H{}
+	}
+	defer cursor.Close(context.TODO())
+
+	series := []gin.H{}
+	for cursor.Next(context.TODO()) {
+		var row struct {
+			ID    string `bson:"_id"`
+			Views int64  `bson:"views"`
+		}
+		if cursor.Decode(&row) == nil {
+			series = append(series, gin.H{"date": row.ID, "views": row.Views})
+		}
+	}
+	return series
+}
+
+func (h *UserHandler) GetNotificationPrefs(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	var user models.User
+	if err := h.db.Users().FindOne(context.TODO(), bson.M{"_id": userID}).Decode(&user); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	prefs := user.NotificationPrefs
+	if prefs.Likes == false && prefs.Comments == false && prefs.Follows == false && prefs.Purchases == false {
+		prefs = models.DefaultNotificationPrefs()
+	}
+	c.JSON(http.StatusOK, prefs)
+}
+
+func (h *UserHandler) UpdateNotificationPrefs(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	var req models.UpdateNotificationPrefsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var user models.User
+	if err := h.db.Users().FindOne(context.TODO(), bson.M{"_id": userID}).Decode(&user); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	prefs := user.NotificationPrefs
+	if prefs.Likes == false && prefs.Comments == false && prefs.Follows == false && prefs.Purchases == false {
+		prefs = models.DefaultNotificationPrefs()
+	}
+	if req.Likes != nil {
+		prefs.Likes = *req.Likes
+	}
+	if req.Comments != nil {
+		prefs.Comments = *req.Comments
+	}
+	if req.Follows != nil {
+		prefs.Follows = *req.Follows
+	}
+	if req.Purchases != nil {
+		prefs.Purchases = *req.Purchases
+	}
+
+	_, err := h.db.Users().UpdateOne(context.TODO(), bson.M{"_id": userID}, bson.M{"$set": bson.M{"notificationPrefs": prefs}})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update preferences"})
+		return
+	}
+	c.JSON(http.StatusOK, prefs)
+}
+
+func (h *UserHandler) GetMyBookmarks(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	ids, err := h.bookmarkedArtworkIDsForUser(userID.(primitive.ObjectID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load bookmarks"})
+		return
+	}
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.Hex()
+	}
+	c.JSON(http.StatusOK, gin.H{"artworkIds": out})
 }
 
 func (h *UserHandler) findUserByUsername(username string) (models.User, error) {
@@ -572,7 +935,10 @@ func (h *UserHandler) buildProfileResponse(c *gin.Context, user models.User) gin
 			"coverImage": user.CoverImageURL,
 			"location":   user.Location,
 			"website":    user.Website,
+			"twitter":    user.Twitter,
+			"instagram":  user.Instagram,
 		},
+		"notificationPrefs": user.NotificationPrefs,
 	}
 
 	if viewerID, ok := c.Get("userID"); ok {

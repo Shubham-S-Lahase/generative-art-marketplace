@@ -127,12 +127,39 @@ const ArtCreator = () => {
     }
   }, [parameters.animation.enabled, parameters.animation.speed]);
 
+  const [remixSourceId, setRemixSourceId] = useState(null);
+
+  useEffect(() => {
+    const loadServerPresets = async () => {
+      try {
+        const server = await api.getPresets();
+        if (Array.isArray(server) && server.length > 0) {
+          setPresets((prev) => {
+            const merged = [...prev];
+            server.forEach((sp) => {
+              if (!merged.some((p) => p.id === sp.id)) {
+                merged.push({ id: sp.id, name: sp.name, parameters: sp.parameters, isServer: true });
+              }
+            });
+            return merged;
+          });
+        }
+      } catch (e) {
+        console.error('Failed to load server presets', e);
+      }
+    };
+    loadServerPresets();
+  }, []);
+
   // Prefill from remix
   useEffect(() => {
     if (location.state?.parameters) {
       setParameters((prev) => ({ ...prev, ...location.state.parameters }));
       if (location.state.title) {
         setArtworkData((prev) => ({ ...prev, title: location.state.title }));
+      }
+      if (location.state.remixOf) {
+        setRemixSourceId(location.state.remixOf);
       }
     }
   }, [location.state]);
@@ -818,6 +845,9 @@ const ArtCreator = () => {
     const updatedPresets = [...presets, newPreset];
     setPresets(updatedPresets);
     localStorage.setItem('artPresets', JSON.stringify(updatedPresets));
+    if (currentUser) {
+      api.createPreset({ name: presetName, parameters, isPublic: false }).catch(() => {});
+    }
     setPresetName('');
     setShowPresetModal(false);
     alert('Preset saved!');
@@ -857,10 +887,11 @@ const ArtCreator = () => {
       const artworkPayload = {
         title: artworkData.title || 'Untitled Artwork',
         description: artworkData.description || '',
-        parameters: parameters, // Ensure this is always sent
+        parameters: parameters,
         imageData: imageData,
         tags: artworkData.tags ? artworkData.tags.split(',').map(tag => tag.trim()).filter(tag => tag) : [],
         isPublic: artworkData.isPublic !== false,
+        remixOf: remixSourceId || undefined,
         marketplace: {
           forSale: false,
           price: 0

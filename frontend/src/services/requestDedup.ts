@@ -13,6 +13,11 @@ export function invalidateDedupKey(key: string): void {
   inflight.delete(key);
 }
 
+/** Clears in-flight GET dedup cache (e.g. on logout). */
+export function clearDedupCache(): void {
+  inflight.clear();
+}
+
 export async function dedupedRequest<T>(key: string, request: () => Promise<T>): Promise<T> {
   const existing = inflight.get(key);
   if (existing) {

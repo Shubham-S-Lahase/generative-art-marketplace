@@ -5,6 +5,8 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
 import { getImageUrl } from '../utils/helpers';
 import PerformanceChart from './PerformanceChart';
+import ViewsTimeSeriesChart from './ViewsTimeSeriesChart';
+import { normalizeArtworkCards } from '../utils/artworks';
 import type { PurchaseRecord } from '../types';
 
 const Dashboard = () => {
@@ -20,6 +22,8 @@ const Dashboard = () => {
   });
   const [recentArtworks, setRecentArtworks] = useState([]);
   const [chartData, setChartData] = useState([]);
+  const [viewsTimeSeries, setViewsTimeSeries] = useState([]);
+  const [engagementRate, setEngagementRate] = useState(0);
   const [sales, setSales] = useState<PurchaseRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -32,9 +36,9 @@ const Dashboard = () => {
   const loadDashboardData = async () => {
     try {
       const userId = currentUser.id || currentUser._id;
-      const [statsRes, artworksRes, analyticsRes, salesRes] = await Promise.all([
+      const [statsRes, artworksResult, analyticsRes, salesRes] = await Promise.all([
         api.getDashboard(),
-        api.getArtworks({ userId }),
+        api.getArtworks({ userId, limit: 5 }),
         api.getAnalytics(),
         api.getMySales(),
       ]);
@@ -47,16 +51,7 @@ const Dashboard = () => {
         followersCount: statsRes?.followersCount || 0,
         totalRevenue: statsRes?.totalRevenue || 0,
       });
-      const normalized = Array.isArray(artworksRes) 
-        ? artworksRes.map((a) => ({
-            ...a,
-            id: a.id || a._id,
-            files: { preview: getImageUrl(a.previewUrl || a.imageUrl) },
-            previewUrl: getImageUrl(a.previewUrl || a.imageUrl),
-            imageUrl: getImageUrl(a.imageUrl || a.previewUrl),
-          }))
-        : [];
-      setRecentArtworks(normalized.slice(0, 5));
+      setRecentArtworks(normalizeArtworkCards(artworksResult.items).slice(0, 5));
 
       const rawChart = analyticsRes?.chartData ?? analyticsRes?.topArtworks ?? [];
       setChartData(
@@ -69,6 +64,8 @@ const Dashboard = () => {
             }))
           : []
       );
+      setViewsTimeSeries(analyticsRes?.viewsTimeSeries || []);
+      setEngagementRate(analyticsRes?.engagementRate ?? 0);
       setSales(Array.isArray(salesRes) ? salesRes.slice(0, 10) : []);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -291,11 +288,40 @@ const Dashboard = () => {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               Views vs likes per artwork
             </p>
-            <div className="flex-1 w-full min-w-0">
+            <div className="flex-1 w-full min-w-0 space-y-6">
               <PerformanceChart
                 chartData={chartData}
                 summary={{ totalViews: stats.totalViews, totalLikes: stats.totalLikes }}
               />
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Views (30 days)</h4>
+                  <span className="text-xs text-gray-500">
+                    Engagement: {engagementRate.toFixed(1)}%
+                  </span>
+                </div>
+                <ViewsTimeSeriesChart data={viewsTimeSeries} />
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const blob = await api.exportAnalytics();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'analytics.csv';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch (e) {
+                    console.error(e);
+                    alert('Export failed');
+                  }
+                }}
+                className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+              >
+                Export analytics CSV
+              </button>
             </div>
           </div>
         </div>

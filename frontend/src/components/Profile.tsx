@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
-import { MapPin, Globe, Calendar, Edit, Save, X, Camera } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { MapPin, Globe, Calendar, Edit, Save, X, Camera, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import ArtworkCard from './ArtworkCard';
 import api from '../services/api';
@@ -18,7 +18,8 @@ const normalizeArtworks = (list: Artwork[]) =>
 
 const Profile = () => {
   const { username } = useParams();
-  const { currentUser, setCurrentUser } = useAuth();
+  const navigate = useNavigate();
+  const { currentUser, setCurrentUser, logout } = useAuth();
   const [profile, setProfile] = useState<User | null>(null);
   const [artworks, setArtworks] = useState<Artwork[]>([]);
   const [likedArtworks, setLikedArtworks] = useState<Artwork[]>([]);
@@ -28,14 +29,27 @@ const Profile = () => {
   const [activeTab, setActiveTab] = useState<'artworks' | 'liked' | 'collections'>('artworks');
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteConfirmUsername, setDeleteConfirmUsername] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [editForm, setEditForm] = useState({
     bio: '',
     location: '',
     website: '',
+    twitter: '',
+    instagram: '',
     avatarData: '',
     coverImageData: '',
     avatarPreview: '',
     coverPreview: '',
+  });
+  const [notifPrefs, setNotifPrefs] = useState({
+    likes: true,
+    comments: true,
+    follows: true,
+    purchases: true,
   });
 
   const isOwnProfile = currentUser?.username === username;
@@ -50,11 +64,16 @@ const Profile = () => {
         bio: profileRes.profile?.bio || '',
         location: profileRes.profile?.location || '',
         website: profileRes.profile?.website || '',
+        twitter: profileRes.profile?.twitter || '',
+        instagram: profileRes.profile?.instagram || '',
         avatarData: '',
         coverImageData: '',
         avatarPreview: getImageUrl(profileRes.profile?.avatar) || '',
         coverPreview: getImageUrl(profileRes.profile?.coverImage) || '',
       });
+      if (isOwnProfile && currentUser) {
+        api.getNotificationPrefs().then(setNotifPrefs).catch(() => {});
+      }
 
       const artworksRes = await api.getUserArtworks(username);
       setArtworks(normalizeArtworks(artworksRes));
@@ -153,6 +172,8 @@ const Profile = () => {
         bio: editForm.bio,
         location: editForm.location,
         website: editForm.website,
+        twitter: editForm.twitter,
+        instagram: editForm.instagram,
       };
       if (editForm.avatarData) payload.avatarData = editForm.avatarData;
       if (editForm.coverImageData) payload.coverImageData = editForm.coverImageData;
@@ -183,12 +204,45 @@ const Profile = () => {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!profile?.username) return;
+    if (deleteConfirmUsername !== profile.username) {
+      setDeleteError('Username does not match.');
+      return;
+    }
+    if (!deletePassword.trim()) {
+      setDeleteError('Enter your password to confirm.');
+      return;
+    }
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await api.deleteAccount(deletePassword);
+      await logout();
+      navigate('/');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } } };
+      setDeleteError(e?.response?.data?.error || 'Failed to delete account');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const openDeleteModal = () => {
+    setDeletePassword('');
+    setDeleteConfirmUsername('');
+    setDeleteError('');
+    setShowDeleteModal(true);
+  };
+
   const cancelEdit = () => {
     if (!profile) return;
     setEditForm({
       bio: profile.profile?.bio || '',
       location: profile.profile?.location || '',
       website: profile.profile?.website || '',
+      twitter: profile.profile?.twitter || '',
+      instagram: profile.profile?.instagram || '',
       avatarData: '',
       coverImageData: '',
       avatarPreview: getImageUrl(profile.profile?.avatar) || '',
@@ -353,6 +407,18 @@ const Profile = () => {
                       placeholder="Website URL"
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
                     />
+                    <input
+                      value={editForm.twitter}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, twitter: e.target.value }))}
+                      placeholder="Twitter / X handle"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+                    />
+                    <input
+                      value={editForm.instagram}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, instagram: e.target.value }))}
+                      placeholder="Instagram handle"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+                    />
                   </div>
                 ) : (
                   <>
@@ -382,6 +448,26 @@ const Profile = () => {
                             Website
                           </a>
                         </div>
+                      )}
+                      {profile.profile?.twitter && (
+                        <a
+                          href={`https://twitter.com/${profile.profile.twitter.replace('@', '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+                        >
+                          @{profile.profile.twitter.replace('@', '')}
+                        </a>
+                      )}
+                      {profile.profile?.instagram && (
+                        <a
+                          href={`https://instagram.com/${profile.profile.instagram.replace('@', '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+                        >
+                          @{profile.profile.instagram.replace('@', '')}
+                        </a>
                       )}
                       {profile.createdAt && (
                         <div className="flex items-center gap-1">
@@ -423,8 +509,7 @@ const Profile = () => {
                 { id: 'liked', label: 'Liked' },
                 {
                   id: 'collections',
-                  label: 'Collections',
-                  hint: isOwnProfile ? 'Saved' : undefined,
+                  label: isOwnProfile ? 'Saved' : 'Bookmarks',
                 },
               ] as const
             ).map((tab) => (
@@ -439,9 +524,6 @@ const Profile = () => {
                 }`}
               >
                 {tab.label}
-                {tab.hint && (
-                  <span className="ml-1 text-xs text-gray-400 font-normal">({tab.hint})</span>
-                )}
               </button>
             ))}
           </nav>
@@ -464,7 +546,123 @@ const Profile = () => {
             </div>
           )}
         </div>
+
+        {isOwnProfile && (
+          <div className="mt-12 border border-gray-200 dark:border-gray-700 rounded-lg p-6 bg-white dark:bg-gray-800">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Notification preferences</h3>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {(['likes', 'comments', 'follows', 'purchases'] as const).map((key) => (
+                <label key={key} className="flex items-center gap-2 text-gray-700 dark:text-gray-300 capitalize">
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs[key] !== false}
+                    onChange={(e) => setNotifPrefs((prev) => ({ ...prev, [key]: e.target.checked }))}
+                    className="rounded border-gray-300 text-indigo-600"
+                  />
+                  {key}
+                </label>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await api.updateNotificationPrefs(notifPrefs);
+                  alert('Preferences saved');
+                } catch {
+                  alert('Failed to save preferences');
+                }
+              }}
+              className="mt-4 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              Save notification settings
+            </button>
+          </div>
+        )}
+
+        {isOwnProfile && (
+          <div className="mt-8 border border-red-200 dark:border-red-900/50 rounded-lg p-6 bg-red-50/50 dark:bg-red-950/20">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-semibold text-red-900 dark:text-red-200">Delete account</h3>
+                <p className="mt-1 text-sm text-red-800/90 dark:text-red-300/90">
+                  Permanently removes your profile, likes, bookmarks, and unsold artworks. Sold pieces stay
+                  available to buyers. This cannot be undone.
+                </p>
+                <button
+                  type="button"
+                  onClick={openDeleteModal}
+                  className="mt-4 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+                >
+                  Delete my account
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {showDeleteModal && profile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div
+            className="w-full max-w-md rounded-lg bg-white dark:bg-gray-800 shadow-xl p-6"
+            role="dialog"
+            aria-labelledby="delete-account-title"
+          >
+            <h2 id="delete-account-title" className="text-xl font-bold text-gray-900 dark:text-white">
+              Delete account?
+            </h2>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              Type <span className="font-mono font-semibold">{profile.username}</span> and your password to
+              confirm.
+            </p>
+            <div className="mt-4 space-y-3">
+              <input
+                type="text"
+                value={deleteConfirmUsername}
+                onChange={(e) => setDeleteConfirmUsername(e.target.value)}
+                placeholder="Username"
+                autoComplete="off"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+              />
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Password"
+                autoComplete="current-password"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+              />
+              {deleteError && (
+                <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>
+              )}
+            </div>
+            <div className="mt-6 flex flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm rounded-lg bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={
+                  deleting ||
+                  deleteConfirmUsername !== profile.username ||
+                  !deletePassword.trim()
+                }
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Deleting…' : 'Delete account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -31,26 +31,100 @@ func NewArtworkHandler(db *database.MongoDB, cfg *config.Config, cloudinaryServi
 	return &ArtworkHandler{db: db, cfg: cfg, cloudinary: cloudinaryService}
 }
 
-// ArtworkWithUser extends Artwork with username
+// ArtworkWithUser extends Artwork with username and viewer-specific fields.
 type ArtworkWithUser struct {
 	models.Artwork
-	Username string `json:"username"`
+	Username     string `json:"username"`
+	Bookmarked   bool   `json:"bookmarked,omitempty"`
+	RemixOfTitle string `json:"remixOfTitle,omitempty"`
 }
 
-// populateUsernames adds username to artworks by looking up users
+// populateUsernames adds username to artworks by looking up users.
 func (h *ArtworkHandler) populateUsernames(artworks []models.Artwork) []ArtworkWithUser {
 	result := make([]ArtworkWithUser, len(artworks))
 	for i, artwork := range artworks {
-		result[i] = ArtworkWithUser{
-			Artwork: artwork,
-		}
-		// Fetch user to get username
+		result[i] = ArtworkWithUser{Artwork: artwork}
 		var user models.User
 		if err := h.db.Users().FindOne(context.TODO(), bson.M{"_id": artwork.UserID}).Decode(&user); err == nil {
 			result[i].Username = user.Username
 		}
 	}
 	return result
+}
+
+func (h *ArtworkHandler) bookmarkSetForViewer(c *gin.Context) map[primitive.ObjectID]bool {
+	set := make(map[primitive.ObjectID]bool)
+	viewerID, ok := c.Get("userID")
+	if !ok {
+		return set
+	}
+	cursor, err := h.db.Bookmarks().Find(context.TODO(), bson.M{"userId": viewerID.(primitive.ObjectID)})
+	if err != nil {
+		return set
+	}
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		var b models.Bookmark
+		if cursor.Decode(&b) == nil {
+			set[b.ArtworkID] = true
+		}
+	}
+	return set
+}
+
+func (h *ArtworkHandler) enrichForViewer(c *gin.Context, items []ArtworkWithUser) []ArtworkWithUser {
+	if len(items) == 0 {
+		return items
+	}
+	bookmarks := h.bookmarkSetForViewer(c)
+	remixIDs := make([]primitive.ObjectID, 0)
+	for _, item := range items {
+		if item.RemixOfID != nil {
+			remixIDs = append(remixIDs, *item.RemixOfID)
+		}
+	}
+	titleByID := h.artworkTitlesByIDs(remixIDs)
+	for i := range items {
+		if bookmarks[items[i].ID] {
+			items[i].Bookmarked = true
+		}
+		if items[i].RemixOfID != nil {
+			if title, ok := titleByID[*items[i].RemixOfID]; ok {
+				items[i].RemixOfTitle = title
+			}
+		}
+	}
+	return items
+}
+
+func (h *ArtworkHandler) artworkTitlesByIDs(ids []primitive.ObjectID) map[primitive.ObjectID]string {
+	out := make(map[primitive.ObjectID]string)
+	if len(ids) == 0 {
+		return out
+	}
+	cursor, err := h.db.Artworks().Find(context.TODO(), bson.M{"_id": bson.M{"$in": ids}},
+		options.Find().SetProjection(bson.M{"title": 1}))
+	if err != nil {
+		return out
+	}
+	defer cursor.Close(context.TODO())
+	for cursor.Next(context.TODO()) {
+		var a models.Artwork
+		if cursor.Decode(&a) == nil {
+			out[a.ID] = a.Title
+		}
+	}
+	return out
+}
+
+func (h *ArtworkHandler) maybeMarkVerified(artwork *models.Artwork) {
+	if artwork.IsVerified {
+		return
+	}
+	if artwork.Metrics.Likes >= 5 || artwork.IsFeatured || artwork.Metrics.Views >= 100 {
+		_, _ = h.db.Artworks().UpdateOne(context.TODO(), bson.M{"_id": artwork.ID}, bson.M{"$set": bson.M{"isVerified": true}})
+		artwork.IsVerified = true
+	}
 }
 
 func (h *ArtworkHandler) GetArtworks(c *gin.Context) {
@@ -64,9 +138,53 @@ func (h *ArtworkHandler) GetArtworks(c *gin.Context) {
 	priceMax, _ := strconv.ParseFloat(c.DefaultQuery("priceMax", "0"), 64)
 	forSale := c.Query("forSale")
 	license := c.Query("license")
+	q := strings.TrimSpace(c.Query("q"))
+	tags := strings.TrimSpace(c.Query("tags"))
+	dateFrom := c.Query("dateFrom")
+	dateTo := c.Query("dateTo")
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
 
 	// Build filter
 	filter := bson.M{"isPublic": true}
+	if q != "" {
+		filter["$or"] = []bson.M{
+			{"title": bson.M{"$regex": q, "$options": "i"}},
+			{"description": bson.M{"$regex": q, "$options": "i"}},
+		}
+	}
+	if tags != "" {
+		tagList := strings.Split(tags, ",")
+		for i := range tagList {
+			tagList[i] = strings.TrimSpace(tagList[i])
+		}
+		filter["tags"] = bson.M{"$in": tagList}
+	}
+	if dateFrom != "" {
+		if t, err := time.Parse("2006-01-02", dateFrom); err == nil {
+			if filter["createdAt"] == nil {
+				filter["createdAt"] = bson.M{}
+			}
+			filter["createdAt"].(bson.M)["$gte"] = t
+		}
+	}
+	if dateTo != "" {
+		if t, err := time.Parse("2006-01-02", dateTo); err == nil {
+			end := t.Add(24*time.Hour - time.Nanosecond)
+			if filter["createdAt"] == nil {
+				filter["createdAt"] = bson.M{}
+			}
+			filter["createdAt"].(bson.M)["$lte"] = end
+		}
+	}
 	if category != "" && category != "all" {
 		filter["category"] = category
 	}
@@ -131,9 +249,15 @@ func (h *ArtworkHandler) GetArtworks(c *gin.Context) {
 		return
 	}
 
-	// Populate username for each artwork
-	result := h.populateUsernames(artworks)
-	c.JSON(http.StatusOK, result)
+	total, _ := h.db.Artworks().CountDocuments(context.TODO(), filter)
+	result := h.enrichForViewer(c, h.populateUsernames(artworks))
+	c.JSON(http.StatusOK, gin.H{
+		"items":   result,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+		"hasMore": int64(page*limit) < total,
+	})
 }
 
 func (h *ArtworkHandler) GetArtwork(c *gin.Context) {
@@ -155,8 +279,9 @@ func (h *ArtworkHandler) GetArtwork(c *gin.Context) {
 	}
 
 	// Populate username (view count is incremented via POST /artworks/:id/view)
-	result := h.populateUsernames([]models.Artwork{artwork})[0]
-	c.JSON(http.StatusOK, result)
+	h.maybeMarkVerified(&artwork)
+	enriched := h.enrichForViewer(c, h.populateUsernames([]models.Artwork{artwork}))
+	c.JSON(http.StatusOK, enriched[0])
 }
 
 // RecordArtworkView increments views once per viewer per artwork (per browser session on client).
@@ -259,6 +384,13 @@ func (h *ArtworkHandler) CreateArtwork(c *gin.Context) {
 		return
 	}
 
+	var remixOfID *primitive.ObjectID
+	if strings.TrimSpace(req.RemixOf) != "" {
+		if oid, err := primitive.ObjectIDFromHex(req.RemixOf); err == nil {
+			remixOfID = &oid
+		}
+	}
+
 	artwork := models.Artwork{
 		Title:       req.Title,
 		Description: req.Description,
@@ -266,6 +398,8 @@ func (h *ArtworkHandler) CreateArtwork(c *gin.Context) {
 		Parameters:  req.Parameters,
 		Tags:        req.Tags,
 		IsPublic:    req.IsPublic,
+		Category:    req.Category,
+		RemixOfID:   remixOfID,
 		Marketplace: req.Marketplace,
 		IsFeatured:  false,
 		IsVerified:  false,
@@ -288,7 +422,8 @@ func (h *ArtworkHandler) CreateArtwork(c *gin.Context) {
 	}
 
 	artwork.ID = result.InsertedID.(primitive.ObjectID)
-	c.JSON(http.StatusCreated, artwork)
+	enriched := h.enrichForViewer(c, h.populateUsernames([]models.Artwork{artwork}))
+	c.JSON(http.StatusCreated, enriched[0])
 }
 
 func (h *ArtworkHandler) persistImage(req models.CreateArtworkRequest) (string, error) {
@@ -518,7 +653,8 @@ func (h *ArtworkHandler) LikeArtwork(c *gin.Context) {
 	if err := h.db.Artworks().FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&art); err == nil {
 		if art.UserID != userID.(primitive.ObjectID) {
 			src := objectID
-			createNotification(h.db, art.UserID, "like", "New like", "Someone liked your artwork: "+art.Title, &src)
+			h.maybeMarkVerified(&art)
+			createNotificationIfAllowed(h.db, art.UserID, "like", "New like", "Someone liked your artwork: "+art.Title, &src)
 		}
 	}
 
@@ -592,7 +728,7 @@ func (h *ArtworkHandler) GetFeaturedArtworks(c *gin.Context) {
 	}
 
 	// Populate username for each artwork
-	result := h.populateUsernames(artworks)
+	result := h.enrichForViewer(c, h.populateUsernames(artworks))
 	c.JSON(http.StatusOK, result)
 }
 
@@ -618,8 +754,7 @@ func (h *ArtworkHandler) GetTrendingArtworks(c *gin.Context) {
 		return
 	}
 
-	// Populate username for each artwork
-	result := h.populateUsernames(artworks)
+	result := h.enrichForViewer(c, h.populateUsernames(artworks))
 	c.JSON(http.StatusOK, result)
 }
 
@@ -653,8 +788,7 @@ func (h *ArtworkHandler) SearchArtworks(c *gin.Context) {
 		return
 	}
 
-	// Populate username for each artwork
-	result := h.populateUsernames(artworks)
+	result := h.enrichForViewer(c, h.populateUsernames(artworks))
 	c.JSON(http.StatusOK, result)
 }
 
@@ -776,7 +910,7 @@ func (h *ArtworkHandler) AddComment(c *gin.Context) {
 		uid := userID.(primitive.ObjectID)
 		if art.UserID != uid {
 			src := objectID
-			createNotification(h.db, art.UserID, "comment", "New comment", "Someone commented on your artwork: "+art.Title, &src)
+			createNotificationIfAllowed(h.db, art.UserID, "comment", "New comment", "Someone commented on your artwork: "+art.Title, &src)
 		}
 	}
 

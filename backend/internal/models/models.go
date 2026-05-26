@@ -16,18 +16,45 @@ type User struct {
 	CoverImageURL  string             `bson:"coverImageUrl,omitempty" json:"coverImageUrl,omitempty"`
 	Location       string             `bson:"location,omitempty" json:"location,omitempty"`
 	Website        string             `bson:"website,omitempty" json:"website,omitempty"`
+	Twitter        string             `bson:"twitter,omitempty" json:"twitter,omitempty"`
+	Instagram      string             `bson:"instagram,omitempty" json:"instagram,omitempty"`
+	NotificationPrefs NotificationPrefs `bson:"notificationPrefs,omitempty" json:"notificationPrefs,omitempty"`
 	FollowersCount int64              `bson:"followersCount" json:"followersCount"`
 	FollowingCount int64              `bson:"followingCount" json:"followingCount"`
 	CreatedAt      time.Time          `bson:"createdAt" json:"createdAt"`
 	UpdatedAt      time.Time          `bson:"updatedAt" json:"updatedAt"`
 }
 
+type NotificationPrefs struct {
+	Likes     bool `bson:"likes" json:"likes"`
+	Comments  bool `bson:"comments" json:"comments"`
+	Follows   bool `bson:"follows" json:"follows"`
+	Purchases bool `bson:"purchases" json:"purchases"`
+}
+
+func DefaultNotificationPrefs() NotificationPrefs {
+	return NotificationPrefs{Likes: true, Comments: true, Follows: true, Purchases: true}
+}
+
 type UpdateProfileRequest struct {
 	Bio            string `json:"bio"`
 	Location       string `json:"location"`
 	Website        string `json:"website"`
+	Twitter        string `json:"twitter"`
+	Instagram      string `json:"instagram"`
 	AvatarData     string `json:"avatarData"`
 	CoverImageData string `json:"coverImageData"`
+}
+
+type UpdateNotificationPrefsRequest struct {
+	Likes     *bool `json:"likes"`
+	Comments  *bool `json:"comments"`
+	Follows   *bool `json:"follows"`
+	Purchases *bool `json:"purchases"`
+}
+
+type DeleteAccountRequest struct {
+	Password string `json:"password" binding:"required"`
 }
 
 type ArtworkMetrics struct {
@@ -57,8 +84,9 @@ type Artwork struct {
 	PreviewURL  string             `bson:"previewUrl,omitempty" json:"previewUrl,omitempty"`
 	IsPublic    bool               `bson:"isPublic" json:"isPublic"`
 	IsFeatured  bool               `bson:"isFeatured" json:"isFeatured"`
-	IsVerified  bool               `bson:"isVerified" json:"isVerified"`
-	Category    string             `bson:"category,omitempty" json:"category,omitempty"`
+	IsVerified  bool                `bson:"isVerified" json:"isVerified"`
+	RemixOfID   *primitive.ObjectID `bson:"remixOf,omitempty" json:"remixOf,omitempty"`
+	Category    string              `bson:"category,omitempty" json:"category,omitempty"`
 	Metrics     ArtworkMetrics     `bson:"metrics" json:"metrics"`
 	Marketplace MarketplaceInfo    `bson:"marketplace,omitempty" json:"marketplace,omitempty"`
 	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
@@ -66,14 +94,43 @@ type Artwork struct {
 }
 
 type CreateArtworkRequest struct {
-	Title       string         `json:"title" binding:"required"`
-	Description string         `json:"description"`
-	Parameters  map[string]any `json:"parameters" binding:"required"`
-	Tags        []string       `json:"tags"`
-	IsPublic    bool           `json:"isPublic"`
-	Category    string         `json:"category"`
-	ImageData   string         `json:"imageData"` // optional base64 PNG from frontend
+	Title       string          `json:"title" binding:"required"`
+	Description string          `json:"description"`
+	Parameters  map[string]any  `json:"parameters" binding:"required"`
+	Tags        []string        `json:"tags"`
+	IsPublic    bool            `json:"isPublic"`
+	Category    string          `json:"category"`
+	RemixOf     string          `json:"remixOf"`
+	ImageData   string          `json:"imageData"` // optional base64 PNG from frontend
 	Marketplace MarketplaceInfo `json:"marketplace"`
+}
+
+type Preset struct {
+	ID         primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID     primitive.ObjectID `bson:"userId,omitempty" json:"userId,omitempty"`
+	Name       string             `bson:"name" json:"name"`
+	Parameters map[string]any     `bson:"parameters" json:"parameters"`
+	IsPublic   bool               `bson:"isPublic" json:"isPublic"`
+	CreatedAt  time.Time          `bson:"createdAt" json:"createdAt"`
+}
+
+type Report struct {
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ReporterID  primitive.ObjectID `bson:"reporterId" json:"reporterId"`
+	TargetType  string             `bson:"targetType" json:"targetType"`
+	TargetID    primitive.ObjectID `bson:"targetId" json:"targetId"`
+	Reason      string             `bson:"reason" json:"reason"`
+	Details     string             `bson:"details,omitempty" json:"details,omitempty"`
+	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
+}
+
+type PasswordReset struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Email     string             `bson:"email" json:"email"`
+	Token     string             `bson:"token" json:"token"`
+	ExpiresAt time.Time          `bson:"expiresAt" json:"expiresAt"`
+	Used      bool               `bson:"used" json:"used"`
+	CreatedAt time.Time          `bson:"createdAt" json:"createdAt"`
 }
 
 // GeneratePreviewRequest is used for server-side preview without saving an artwork.

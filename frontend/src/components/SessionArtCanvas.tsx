@@ -12,9 +12,10 @@ const DEFAULT_PARAMS = {
 interface SessionArtCanvasProps {
   parameters?: Record<string, unknown>;
   className?: string;
+  compact?: boolean;
 }
 
-const SessionArtCanvas = ({ parameters, className = '' }: SessionArtCanvasProps) => {
+const SessionArtCanvas = ({ parameters, className = '', compact = false }: SessionArtCanvasProps) => {
   const { canvasRef, isGenerating, generateArt } = useArtGenerator();
 
   const merged = {
@@ -28,13 +29,18 @@ const SessionArtCanvas = ({ parameters, className = '' }: SessionArtCanvasProps)
     generateArt(merged);
   }, [JSON.stringify(merged), generateArt]);
 
+  const w = compact ? 320 : 480;
+  const h = compact ? 112 : 360;
+
   return (
     <div className={`relative ${className}`}>
       <canvas
         ref={canvasRef}
-        width={480}
-        height={360}
-        className="w-full max-w-full h-auto border border-gray-300 dark:border-gray-600 rounded-lg bg-white shadow-sm"
+        width={w}
+        height={h}
+        className={`w-full max-w-full border border-gray-300 dark:border-gray-600 rounded-lg bg-white shadow-sm ${
+          compact ? 'h-28 object-cover' : 'h-auto'
+        }`}
       />
       {isGenerating && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-gray-900/60 rounded-lg">

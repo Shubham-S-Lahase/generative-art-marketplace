@@ -6,8 +6,18 @@ export interface UserProfile {
   bio?: string;
   location?: string;
   website?: string;
+  twitter?: string;
+  instagram?: string;
+  [key: string]: unknown;
   avatar?: string;
   coverImage?: string;
+}
+
+export interface NotificationPrefs {
+  likes?: boolean;
+  comments?: boolean;
+  follows?: boolean;
+  purchases?: boolean;
 }
 
 export interface UserStats {
@@ -81,6 +91,10 @@ export interface Artwork {
   marketplace?: ArtworkMarketplace;
   likedBy?: string[];
   isFeatured?: boolean;
+  isVerified?: boolean;
+  bookmarked?: boolean;
+  remixOf?: string;
+  remixOfTitle?: string;
   isPublic?: boolean;
   rating?: number;
   createdAt?: string;

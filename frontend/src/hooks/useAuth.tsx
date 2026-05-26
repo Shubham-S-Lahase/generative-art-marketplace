@@ -67,7 +67,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const logout = async () => {
-    setCurrentUser(null);
+    try {
+      await api.logout();
+    } catch {
+      // Still clear local session if the request fails (e.g. offline).
+    } finally {
+      setCurrentUser(null);
+      window.dispatchEvent(new Event('auth:logout'));
+    }
   };
 
   return (

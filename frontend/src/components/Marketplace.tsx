@@ -4,6 +4,8 @@ import { ShoppingCart, Filter, Crown, CheckCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
 import { getImageUrl } from '../utils/helpers';
+import { normalizeArtworkCards } from '../utils/artworks';
+import ArtworkLightbox from './ArtworkLightbox';
 import MockCheckoutModal from './MockCheckoutModal';
 import { isSameUser } from '../utils/userId';
 
@@ -18,7 +20,16 @@ const Marketplace = () => {
     priceRange: 'all',
     license: 'all',
     sortBy: 'recent',
+    tags: '',
+    dateFrom: '',
+    dateTo: '',
   });
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [bookmarkIds, setBookmarkIds] = useState<Set<string>>(new Set());
+  const [lightboxArtwork, setLightboxArtwork] = useState(null);
+  const limit = 12;
 
   const loadOwnedArtworks = useCallback(async () => {
     if (!currentUser) {
@@ -43,7 +54,14 @@ const Marketplace = () => {
   }, [loadOwnedArtworks]);
 
   useEffect(() => {
-    loadMarketplaceArtworks();
+    if (currentUser) {
+      api.getMyBookmarkIds().then((ids) => setBookmarkIds(new Set(ids.map(String)))).catch(() => {});
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    setPage(1);
+    loadMarketplaceArtworks(1, false);
   }, [filters]);
 
   const priceParams = () => {
@@ -59,12 +77,18 @@ const Marketplace = () => {
     }
   };
 
-  const loadMarketplaceArtworks = async () => {
+  const loadMarketplaceArtworks = async (pageNum = 1, append = false) => {
     try {
-      setLoading(true);
-      const data = await api.getArtworks({
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+      const result = await api.getArtworks({
         forSale: true,
         license: filters.license !== 'all' ? filters.license : undefined,
+        tags: filters.tags || undefined,
+        dateFrom: filters.dateFrom || undefined,
+        dateTo: filters.dateTo || undefined,
+        page: pageNum,
+        limit,
         sort:
           filters.sortBy === 'price-low'
             ? 'price-asc'
@@ -75,12 +99,8 @@ const Marketplace = () => {
                 : 'recent',
         ...priceParams(),
       });
-      const normalized = data.map((a) => ({
+      const normalized = normalizeArtworkCards(result.items).map((a) => ({
         ...a,
-        id: a.id || a._id,
-        files: { preview: getImageUrl(a.previewUrl || a.imageUrl) },
-        previewUrl: getImageUrl(a.previewUrl || a.imageUrl),
-        imageUrl: getImageUrl(a.imageUrl || a.previewUrl),
         marketplace: {
           ...a.marketplace,
           licensing: Array.isArray(a.marketplace?.licensing) ? a.marketplace.licensing : [],
@@ -88,11 +108,14 @@ const Marketplace = () => {
           sales: a.marketplace?.sales || 0,
         },
       }));
-      setArtworks(normalized);
+      setArtworks((prev) => (append ? [...prev, ...normalized] : normalized));
+      setHasMore(result.hasMore);
+      setPage(pageNum);
     } catch (error) {
       console.error('Error loading marketplace artworks:', error);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -185,17 +208,17 @@ const Marketplace = () => {
           </p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-8">
-          <div className="flex flex-col md:flex-row md:items-center md:space-x-6 space-y-4 md:space-y-0">
-            <div className="flex items-center space-x-2">
-              <Filter className="h-5 w-5 text-gray-400" />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filters:</span>
-            </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-8 overflow-hidden">
+          <div className="flex items-center gap-2 mb-4">
+            <Filter className="h-5 w-5 text-gray-400 shrink-0" />
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filters</span>
+          </div>
 
+          <div className="flex flex-wrap gap-3 items-end">
             <select
               value={filters.priceRange}
               onChange={(e) => setFilters((prev) => ({ ...prev, priceRange: e.target.value }))}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+              className="min-w-[8.5rem] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
             >
               <option value="all">All Prices</option>
               <option value="under-100">Under $100</option>
@@ -206,7 +229,7 @@ const Marketplace = () => {
             <select
               value={filters.license}
               onChange={(e) => setFilters((prev) => ({ ...prev, license: e.target.value }))}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+              className="min-w-[8.5rem] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
             >
               <option value="all">All Licenses</option>
               <option value="personal">Personal Only</option>
@@ -217,13 +240,42 @@ const Marketplace = () => {
             <select
               value={filters.sortBy}
               onChange={(e) => setFilters((prev) => ({ ...prev, sortBy: e.target.value }))}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+              className="min-w-[8.5rem] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
             >
               <option value="recent">Most Recent</option>
               <option value="price-low">Price: Low to High</option>
               <option value="price-high">Price: High to Low</option>
               <option value="popular">Most Popular</option>
             </select>
+
+            <input
+              type="text"
+              placeholder="Tags (comma-separated)"
+              value={filters.tags}
+              onChange={(e) => setFilters((prev) => ({ ...prev, tags: e.target.value }))}
+              className="min-w-[12rem] flex-1 max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+            />
+
+            <div className="flex flex-wrap gap-3 items-end">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Posted from</span>
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, dateFrom: e.target.value }))}
+                  className="w-[10.5rem] max-w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Posted to</span>
+                <input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, dateTo: e.target.value }))}
+                  className="w-[10.5rem] max-w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+                />
+              </label>
+            </div>
           </div>
         </div>
 
@@ -237,7 +289,10 @@ const Marketplace = () => {
                 <img
                   src={artwork.files?.preview}
                   alt={artwork.title}
-                  className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                  loading="lazy"
+                  decoding="async"
+                  className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300 cursor-zoom-in"
+                  onClick={() => setLightboxArtwork(artwork)}
                 />
                 <div className="absolute bottom-3 left-3 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
                   ${artwork.marketplace?.price || 0}
@@ -286,6 +341,21 @@ const Marketplace = () => {
           ))}
         </div>
 
+        {hasMore && (
+          <div className="flex justify-center mt-8">
+            <button
+              type="button"
+              onClick={() => loadMarketplaceArtworks(page + 1, true)}
+              disabled={loadingMore}
+              className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </button>
+          </div>
+        )}
+
+        <ArtworkLightbox artwork={lightboxArtwork} onClose={() => setLightboxArtwork(null)} />
+
         {selectedArtwork && (
           <LicenseModal artwork={selectedArtwork} onClose={() => setSelectedArtwork(null)} />
         )}
@@ -298,7 +368,7 @@ const Marketplace = () => {
             onSuccess={() => {
               alert('Purchase successful! View your license under My Licenses.');
               loadOwnedArtworks();
-              loadMarketplaceArtworks();
+              loadMarketplaceArtworks(1, false);
             }}
           />
         )}

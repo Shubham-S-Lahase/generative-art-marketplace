@@ -146,7 +146,7 @@ const MockCheckoutModal = ({ artwork, license, onClose, onSuccess }: MockCheckou
     }
 
     const sim = simulateMockPayment(method, cardNumber, upiId);
-    if (!sim.ok) {
+    if (sim.ok === false) {
       setError(sim.message);
       return;
     }
