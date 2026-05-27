@@ -66,6 +66,26 @@ func (db *MongoDB) ensureIndexes(ctx context.Context) {
 	if err != nil {
 		log.Printf("purchases idempotencyKey index: %v", err)
 	}
+	_, err = db.RecentlyViewed().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"userId": 1, "artworkId": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		log.Printf("recently_viewed index: %v", err)
+	}
+	_, err = db.SavedSearches().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "userId", Value: 1}, {Key: "createdAt", Value: -1}},
+	})
+	if err != nil {
+		log.Printf("saved_searches index: %v", err)
+	}
+	_, err = db.SearchLogs().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"createdAt": 1},
+		Options: options.Index().SetExpireAfterSeconds(60 * 60 * 24 * 90), // 90 days TTL
+	})
+	if err != nil {
+		log.Printf("search_logs TTL index: %v", err)
+	}
 }
 
 func (db *MongoDB) Close(ctx context.Context) error {
@@ -79,7 +99,10 @@ func (db *MongoDB) Likes() *mongo.Collection         { return db.Database.Collec
 func (db *MongoDB) Comments() *mongo.Collection      { return db.Database.Collection("comments") }
 func (db *MongoDB) CommentLikes() *mongo.Collection  { return db.Database.Collection("comment_likes") }
 func (db *MongoDB) Follows() *mongo.Collection       { return db.Database.Collection("follows") }
-func (db *MongoDB) Bookmarks() *mongo.Collection     { return db.Database.Collection("bookmarks") }
+func (db *MongoDB) Bookmarks() *mongo.Collection      { return db.Database.Collection("bookmarks") }
+func (db *MongoDB) RecentlyViewed() *mongo.Collection { return db.Database.Collection("recently_viewed") }
+func (db *MongoDB) SearchLogs() *mongo.Collection     { return db.Database.Collection("search_logs") }
+func (db *MongoDB) SavedSearches() *mongo.Collection  { return db.Database.Collection("saved_searches") }
 func (db *MongoDB) Notifications() *mongo.Collection { return db.Database.Collection("notifications") }
 func (db *MongoDB) Sessions() *mongo.Collection      { return db.Database.Collection("sessions") }
 func (db *MongoDB) Purchases() *mongo.Collection     { return db.Database.Collection("purchases") }

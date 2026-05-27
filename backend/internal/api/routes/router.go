@@ -23,6 +23,7 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	reportHandler := handlers.NewReportHandler(db)
 	presetHandler := handlers.NewPresetHandler(db)
 	miscHandler := handlers.NewMiscHandler(db)
+	discoveryHandler := handlers.NewDiscoveryHandler(db)
 
 	rateLimit := middleware.RateLimit(120, time.Minute)
 
@@ -30,6 +31,9 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	api.Use(rateLimit)
 
 	api.GET("/health", miscHandler.Health)
+	api.GET("/discovery/trending-tags", discoveryHandler.GetTrendingTags)
+	api.GET("/discovery/popular-searches", discoveryHandler.GetPopularSearches)
+	api.POST("/discovery/search-log", middleware.OptionalAuthMiddleware(cfg), discoveryHandler.RecordSearch)
 
 	// Auth
 	api.POST("/auth/register", authHandler.Register)
@@ -43,8 +47,11 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	api.GET("/artworks/featured", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetFeaturedArtworks)
 	api.GET("/artworks/trending", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetTrendingArtworks)
 	api.GET("/artworks/search", middleware.OptionalAuthMiddleware(cfg), artworkHandler.SearchArtworks)
+	api.GET("/artworks/search/by-color", middleware.OptionalAuthMiddleware(cfg), artworkHandler.SearchArtworksByColor)
 	api.POST("/artworks/generate", artworkHandler.GeneratePreview)
+	api.POST("/artworks/preview/delete", artworkHandler.DeletePreview)
 	api.GET("/artworks/:id", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetArtwork)
+	api.GET("/artworks/:id/similar", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetSimilarArtworks)
 	api.POST("/artworks/:id/view", middleware.OptionalAuthMiddleware(cfg), artworkHandler.RecordArtworkView)
 	api.GET("/artworks/:id/comments", middleware.OptionalAuthMiddleware(cfg), artworkHandler.GetComments)
 	api.GET("/artworks/:id/ownership", middleware.OptionalAuthMiddleware(cfg), marketplaceHandler.GetArtworkOwnership)
@@ -86,6 +93,10 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	protected.GET("/me/sales", marketplaceHandler.GetMySales)
 	protected.GET("/me/licenses", marketplaceHandler.GetMyLicenses)
 	protected.GET("/me/bookmarks", userHandler.GetMyBookmarks)
+	protected.GET("/me/recently-viewed", userHandler.GetMyRecentlyViewed)
+	protected.GET("/me/saved-searches", userHandler.GetMySavedSearches)
+	protected.POST("/me/saved-searches", userHandler.CreateSavedSearch)
+	protected.DELETE("/me/saved-searches/:id", userHandler.DeleteSavedSearch)
 
 	// Users
 	protected.GET("/users/me", userHandler.GetMe)

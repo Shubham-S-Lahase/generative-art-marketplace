@@ -11,6 +11,7 @@ import Profile from './components/Profile';
 import AuthModal from './components/AuthModal';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
+import { NotificationsProvider } from './hooks/useNotifications';
 import NotificationSystem from './components/NotificationSystem';
 import NotificationBell from './components/NotificationBell';
 import ArtworkDetail from './components/ArtworkDetail';
@@ -20,22 +21,24 @@ const App = () => {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
-          <Header />
-          <Routes>
-            <Route path="/" element={<Gallery />} />
-            <Route path="/create" element={<ArtCreator />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/sessions" element={<LiveSessions />} />
-            <Route path="/marketplace" element={<Marketplace />} />
-            <Route path="/purchases" element={<PurchaseHistory />} />
-            <Route path="/licenses" element={<MyLicenses />} />
-            <Route path="/profile/:username" element={<Profile />} />
-          <Route path="/artwork/:id" element={<ArtworkDetail />} />
-          </Routes>
-          <AuthModal />
-          <NotificationSystem />
-        </div>
+        <NotificationsProvider>
+          <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
+            <Header />
+            <Routes>
+              <Route path="/" element={<Gallery />} />
+              <Route path="/create" element={<ArtCreator />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/sessions" element={<LiveSessions />} />
+              <Route path="/marketplace" element={<Marketplace />} />
+              <Route path="/purchases" element={<PurchaseHistory />} />
+              <Route path="/licenses" element={<MyLicenses />} />
+              <Route path="/profile/:username" element={<Profile />} />
+            <Route path="/artwork/:id" element={<ArtworkDetail />} />
+            </Routes>
+            <AuthModal />
+            <NotificationSystem />
+          </div>
+        </NotificationsProvider>
       </AuthProvider>
     </ThemeProvider>
   );

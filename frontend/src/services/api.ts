@@ -63,11 +63,27 @@ const api = {
     const res = await client.get('/artworks/featured', { params: { limit } });
     return res.data;
   },
+  async searchArtworksByColor(params: {
+    color: string;
+    tolerance?: number;
+    page?: number;
+    limit?: number;
+  }): Promise<ArtworkListResult> {
+    const key = buildGetCacheKey('artworks/search/by-color', params);
+    return dedupedRequest(key, async () => {
+      const res = await client.get('/artworks/search/by-color', { params });
+      return normalizeArtworkList(res.data);
+    });
+  },
   async getArtwork(id) {
     return dedupedRequest(`artworks/${id}`, async () => {
       const res = await client.get(`/artworks/${id}`);
       return res.data;
     });
+  },
+  async getSimilarArtworks(id: string, limit = 8) {
+    const res = await client.get(`/artworks/${id}/similar`, { params: { limit } });
+    return res.data;
   },
   async recordArtworkView(id) {
     const res = await client.post(`/artworks/${id}/view`);
@@ -161,6 +177,10 @@ const api = {
     const res = await client.post('/artworks/generate', parameters);
     return res.data;
   },
+  async deletePreview(payload: { publicId?: string; url?: string }) {
+    const res = await client.post('/artworks/preview/delete', payload);
+    return res.data;
+  },
 
   // Users
   async getProfile(username) {
@@ -221,6 +241,34 @@ const api = {
   },
   async exportAnalytics() {
     const res = await client.get('/me/analytics/export', { responseType: 'blob' });
+    return res.data;
+  },
+  async getRecentlyViewed(limit = 12) {
+    const res = await client.get('/me/recently-viewed', { params: { limit } });
+    return res.data;
+  },
+  async getTrendingTags(limit = 12) {
+    const res = await client.get('/discovery/trending-tags', { params: { limit } });
+    return res.data;
+  },
+  async getPopularSearches(limit = 8) {
+    const res = await client.get('/discovery/popular-searches', { params: { limit } });
+    return res.data;
+  },
+  async recordSearch(payload: { query?: string; tags?: string; category?: string }) {
+    const res = await client.post('/discovery/search-log', payload);
+    return res.data;
+  },
+  async getSavedSearches() {
+    const res = await client.get('/me/saved-searches');
+    return res.data;
+  },
+  async createSavedSearch(name: string, filters: unknown) {
+    const res = await client.post('/me/saved-searches', { name, filters });
+    return res.data;
+  },
+  async deleteSavedSearch(id: string) {
+    const res = await client.delete(`/me/saved-searches/${id}`);
     return res.data;
   },
   async getMyBookmarkIds() {

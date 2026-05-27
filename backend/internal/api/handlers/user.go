@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,12 +74,12 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid avatar image"})
 			return
 		}
-		url, err := h.cloudinary.UploadImage(ctx, bytes, "avatars")
+		uploaded, err := h.cloudinary.UploadImage(ctx, bytes, "avatars")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to upload avatar"})
 			return
 		}
-		update["avatarUrl"] = url
+		update["avatarUrl"] = uploaded.URL
 	}
 
 	if strings.TrimSpace(req.CoverImageData) != "" {
@@ -91,12 +92,12 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cover image"})
 			return
 		}
-		url, err := h.cloudinary.UploadImage(ctx, bytes, "covers")
+		uploaded, err := h.cloudinary.UploadImage(ctx, bytes, "covers")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to upload cover image"})
 			return
 		}
-		update["coverImageUrl"] = url
+		update["coverImageUrl"] = uploaded.URL
 	}
 
 	_, err := h.db.Users().UpdateOne(context.TODO(), bson.M{"_id": userID}, bson.M{"$set": update})
@@ -860,6 +861,165 @@ func (h *UserHandler) UpdateNotificationPrefs(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, prefs)
+}
+
+func (h *UserHandler) GetMyRecentlyViewed(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "12"))
+	if limit < 1 {
+		limit = 12
+	}
+	if limit > 24 {
+		limit = 24
+	}
+
+	uid := userID.(primitive.ObjectID)
+	cursor, err := h.db.RecentlyViewed().Find(
+		context.TODO(),
+		bson.M{"userId": uid},
+		options.Find().SetSort(bson.M{"viewedAt": -1}).SetLimit(int64(limit)),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load recently viewed"})
+		return
+	}
+	defer cursor.Close(context.TODO())
+
+	artworkIDs := make([]primitive.ObjectID, 0, limit)
+	for cursor.Next(context.TODO()) {
+		var rv models.RecentlyViewed
+		if cursor.Decode(&rv) == nil {
+			artworkIDs = append(artworkIDs, rv.ArtworkID)
+		}
+	}
+	if len(artworkIDs) == 0 {
+		c.JSON(http.StatusOK, []gin.H{})
+		return
+	}
+
+	artCursor, err := h.db.Artworks().Find(context.TODO(), bson.M{
+		"_id":      bson.M{"$in": artworkIDs},
+		"isPublic": true,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load artworks"})
+		return
+	}
+	defer artCursor.Close(context.TODO())
+
+	byID := make(map[primitive.ObjectID]models.Artwork)
+	for artCursor.Next(context.TODO()) {
+		var a models.Artwork
+		if artCursor.Decode(&a) == nil {
+			byID[a.ID] = a
+		}
+	}
+
+	ordered := make([]models.Artwork, 0, len(artworkIDs))
+	for _, id := range artworkIDs {
+		if a, ok := byID[id]; ok {
+			ordered = append(ordered, a)
+		}
+	}
+
+	artHandler := NewArtworkHandler(h.db, h.cfg, h.cloudinary)
+	result := artHandler.enrichForViewer(c, artHandler.populateUsernames(ordered))
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *UserHandler) GetMySavedSearches(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	cursor, err := h.db.SavedSearches().Find(
+		context.TODO(),
+		bson.M{"userId": userID.(primitive.ObjectID)},
+		options.Find().SetSort(bson.M{"updatedAt": -1}).SetLimit(50),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load saved searches"})
+		return
+	}
+	defer cursor.Close(context.TODO())
+
+	var items []models.SavedSearch
+	if err := cursor.All(context.TODO(), &items); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode saved searches"})
+		return
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+func (h *UserHandler) CreateSavedSearch(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	var req models.CreateSavedSearchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" || len(name) > 80 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name must be 1-80 characters"})
+		return
+	}
+
+	now := time.Now()
+	item := models.SavedSearch{
+		UserID:    userID.(primitive.ObjectID),
+		Name:      name,
+		Filters:   req.Filters,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	result, err := h.db.SavedSearches().InsertOne(context.TODO(), item)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save search"})
+		return
+	}
+	item.ID = result.InsertedID.(primitive.ObjectID)
+	c.JSON(http.StatusCreated, item)
+}
+
+func (h *UserHandler) DeleteSavedSearch(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid saved search ID"})
+		return
+	}
+
+	res, err := h.db.SavedSearches().DeleteOne(context.TODO(), bson.M{
+		"_id":    objectID,
+		"userId": userID.(primitive.ObjectID),
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete saved search"})
+		return
+	}
+	if res.DeletedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Saved search not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
 }
 
 func (h *UserHandler) GetMyBookmarks(c *gin.Context) {

@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, {
+  createContext,
+  useState,
+  useEffect,
+  useCallback,
+  useContext,
+  type ReactNode,
+} from 'react';
 import { useAuth } from './useAuth';
 import api from '../services/api';
 import { invalidateDedupKey } from '../services/requestDedup';
@@ -7,7 +14,21 @@ const NOTIFICATIONS_KEY = 'me/notifications';
 
 const isUnread = (n: { isRead?: boolean; read?: boolean }) => !n.isRead && !n.read;
 
-export const useNotifications = () => {
+type NotificationsContextValue = {
+  notifications: any[];
+  unreadCount: number;
+  loading: boolean;
+  loadNotifications: () => Promise<void>;
+  markAsRead: (notificationId: string) => Promise<void>;
+  markAllAsRead: () => Promise<void>;
+  addNotification: (notification: any) => void;
+  removeNotification: (notificationId: string) => void;
+  showToast: (message: string, type?: string) => void;
+};
+
+const NotificationsContext = createContext<NotificationsContextValue | null>(null);
+
+const useNotificationsState = (): NotificationsContextValue => {
   const { currentUser } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -127,4 +148,15 @@ export const useNotifications = () => {
     removeNotification,
     showToast,
   };
+};
+
+export const NotificationsProvider = ({ children }: { children: ReactNode }) => {
+  const value = useNotificationsState();
+  return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;
+};
+
+export const useNotifications = (): NotificationsContextValue => {
+  const ctx = useContext(NotificationsContext);
+  if (!ctx) throw new Error('useNotifications must be used inside NotificationsProvider');
+  return ctx;
 };

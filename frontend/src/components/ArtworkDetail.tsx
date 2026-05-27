@@ -7,8 +7,12 @@ import { useAuth } from '../hooks/useAuth';
 import { getImageUrl } from '../utils/helpers';
 import { buildCommentTree, commentId } from '../utils/comments';
 import CommentItem from './CommentItem';
+import ArtworkCard from './ArtworkCard';
 import MockCheckoutModal from './MockCheckoutModal';
+import { normalizeArtworkCards } from '../utils/artworks';
+import type { Artwork } from '../types';
 import { isSameUser } from '../utils/userId';
+import { pushLocalRecentlyViewed } from '../utils/recentlyViewed';
 
 const ArtworkDetail = () => {
   const { id } = useParams();
@@ -25,6 +29,7 @@ const ArtworkDetail = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [ownership, setOwnership] = useState({ owned: false, license: '', terms: '' });
   const [checkoutLicense, setCheckoutLicense] = useState(null);
+  const [similarArtworks, setSimilarArtworks] = useState<Artwork[]>([]);
   const [editData, setEditData] = useState({
     title: '',
     description: '',
@@ -47,10 +52,16 @@ const ArtworkDetail = () => {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [art, comm] = await Promise.all([api.getArtwork(id), api.getComments(id)]);
+        const [art, comm, similar] = await Promise.all([
+          api.getArtwork(id),
+          api.getComments(id),
+          api.getSimilarArtworks(id, 8).catch(() => []),
+        ]);
         if (cancelled) return;
         setArtwork(art);
         setComments(Array.isArray(comm) ? comm : []);
+        setSimilarArtworks(normalizeArtworkCards(Array.isArray(similar) ? similar : []));
+        pushLocalRecentlyViewed(id);
 
         if (currentUser) {
           try {
@@ -597,6 +608,17 @@ const ArtworkDetail = () => {
               alert('Purchase successful!');
             }}
           />
+        )}
+
+        {similarArtworks.length > 0 && (
+          <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Similar artworks</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {similarArtworks.map((item) => (
+                <ArtworkCard key={item.id} artwork={item} />
+              ))}
+            </div>
+          </div>
         )}
 
         <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">

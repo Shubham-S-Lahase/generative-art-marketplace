@@ -43,6 +43,8 @@ const ArtCreator = () => {
     isPublic: true
   });
   const [serverPreview, setServerPreview] = useState('');
+  const serverPreviewPublicIdRef = useRef('');
+  const serverPreviewUrlRef = useRef('');
   const [sliderComplexity, setSliderComplexity] = useState(5);
   const [presets, setPresets] = useState(() => {
     const saved = localStorage.getItem('artPresets');
@@ -909,16 +911,56 @@ const ArtCreator = () => {
     }
   };
 
+  const deleteServerPreviewAsset = useCallback(async (publicId?: string, url?: string) => {
+    const id = publicId || serverPreviewPublicIdRef.current;
+    const imageUrl = url || serverPreviewUrlRef.current;
+    if (!id && !imageUrl) return;
+    try {
+      await api.deletePreview({
+        publicId: id || undefined,
+        url: imageUrl || undefined,
+      });
+    } catch (err) {
+      console.warn('Failed to delete server preview from Cloudinary:', err);
+    }
+    serverPreviewPublicIdRef.current = '';
+    serverPreviewUrlRef.current = '';
+  }, []);
+
+  const dismissServerPreview = useCallback(async () => {
+    await deleteServerPreviewAsset();
+    setServerPreview('');
+  }, [deleteServerPreviewAsset]);
+
+  useEffect(() => {
+    return () => {
+      const id = serverPreviewPublicIdRef.current;
+      const imageUrl = serverPreviewUrlRef.current;
+      if (id || imageUrl) {
+        api.deletePreview({
+          publicId: id || undefined,
+          url: imageUrl || undefined,
+        }).catch(() => {});
+      }
+    };
+  }, []);
+
   const generateServerSide = async () => {
     try {
       setIsGenerating(true);
+      await deleteServerPreviewAsset();
+      setServerPreview('');
+
       const canvas = canvasRef.current;
       const imageData = canvas ? canvas.toDataURL('image/png') : '';
       const res = await api.generatePreview({
         parameters,
         imageData: imageData || undefined,
       });
-      setServerPreview(getImageUrl(res.previewUrl));
+      serverPreviewPublicIdRef.current = res.publicId || '';
+      const normalizedUrl = getImageUrl(res.previewUrl);
+      serverPreviewUrlRef.current = normalizedUrl;
+      setServerPreview(normalizedUrl);
     } catch (err) {
       console.error(err);
       const msg = err.response?.data?.error || err.message || 'Server generation failed';
@@ -1728,7 +1770,7 @@ const ArtCreator = () => {
                       </p>
                       <button
                         type="button"
-                        onClick={() => setServerPreview('')}
+                        onClick={() => dismissServerPreview()}
                         className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                         title="Dismiss server preview"
                         aria-label="Dismiss server preview"
@@ -1737,7 +1779,7 @@ const ArtCreator = () => {
                       </button>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2 px-2">
-                      Saved to Cloudinary — should match your live canvas
+                      Temporary server preview — removed when you dismiss or leave this page
                     </p>
                     <div className="flex justify-center w-full rounded-lg bg-gray-100 dark:bg-gray-900/40 p-2">
                       <img

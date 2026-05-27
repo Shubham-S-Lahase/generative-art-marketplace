@@ -9,6 +9,7 @@ backend/vendor/
 
 # Build outputs
 backend/bin/
+backend/cmd/cmd.exe
 backend/dist/
 frontend/dist/
 frontend/build/

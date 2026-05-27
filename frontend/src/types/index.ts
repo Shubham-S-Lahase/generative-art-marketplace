@@ -218,3 +218,31 @@ export interface ArtPreset {
   parameters: ArtParameters;
   createdAt: string;
 }
+
+export interface TrendingTag {
+  tag: string;
+  count: number;
+}
+
+export interface PopularSearch {
+  query: string;
+  count: number;
+}
+
+export interface SavedSearchFilters {
+  q?: string;
+  tags?: string;
+  category?: string;
+  feedMode?: string;
+  color?: string;
+  colorTolerance?: number;
+}
+
+export interface SavedSearch {
+  id?: string;
+  _id?: string;
+  name: string;
+  filters: SavedSearchFilters;
+  createdAt?: string;
+  updatedAt?: string;
+}

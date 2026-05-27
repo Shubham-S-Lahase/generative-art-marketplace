@@ -11,6 +11,7 @@ import (
 	"generative-art-marketplace/internal/config"
 	"generative-art-marketplace/internal/models"
 	"generative-art-marketplace/pkg/cloudinary"
+	"generative-art-marketplace/pkg/colorsearch"
 	"generative-art-marketplace/pkg/database"
 	"generative-art-marketplace/pkg/generator"
 
@@ -142,6 +143,7 @@ func (h *ArtworkHandler) GetArtworks(c *gin.Context) {
 	tags := strings.TrimSpace(c.Query("tags"))
 	dateFrom := c.Query("dateFrom")
 	dateTo := c.Query("dateTo")
+	idsParam := strings.TrimSpace(c.Query("ids"))
 
 	if page < 1 {
 		page = 1
@@ -155,6 +157,22 @@ func (h *ArtworkHandler) GetArtworks(c *gin.Context) {
 
 	// Build filter
 	filter := bson.M{"isPublic": true}
+	if idsParam != "" {
+		idParts := strings.Split(idsParam, ",")
+		oids := make([]primitive.ObjectID, 0, len(idParts))
+		for _, part := range idParts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			if oid, err := primitive.ObjectIDFromHex(part); err == nil {
+				oids = append(oids, oid)
+			}
+		}
+		if len(oids) > 0 {
+			filter["_id"] = bson.M{"$in": oids}
+		}
+	}
 	if q != "" {
 		filter["$or"] = []bson.M{
 			{"title": bson.M{"$regex": q, "$options": "i"}},
@@ -249,6 +267,12 @@ func (h *ArtworkHandler) GetArtworks(c *gin.Context) {
 		return
 	}
 
+	if q != "" {
+		go NewDiscoveryHandler(h.db).LogSearchQuery(q)
+	} else if tags != "" {
+		go NewDiscoveryHandler(h.db).LogSearchQuery(tags)
+	}
+
 	total, _ := h.db.Artworks().CountDocuments(context.TODO(), filter)
 	result := h.enrichForViewer(c, h.populateUsernames(artworks))
 	c.JSON(http.StatusOK, gin.H{
@@ -282,6 +306,144 @@ func (h *ArtworkHandler) GetArtwork(c *gin.Context) {
 	h.maybeMarkVerified(&artwork)
 	enriched := h.enrichForViewer(c, h.populateUsernames([]models.Artwork{artwork}))
 	c.JSON(http.StatusOK, enriched[0])
+}
+
+type scoredArtwork struct {
+	artwork models.Artwork
+	score   int
+}
+
+// GetSimilarArtworks returns artworks similar by tags, category, palette, and pattern.
+func (h *ArtworkHandler) GetSimilarArtworks(c *gin.Context) {
+	objectID, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid artwork ID"})
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "8"))
+	if limit < 1 {
+		limit = 8
+	}
+	if limit > 24 {
+		limit = 24
+	}
+
+	var source models.Artwork
+	if err := h.db.Artworks().FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&source); err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Artwork not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	conditions := make([]bson.M, 0, 3)
+	if len(source.Tags) > 0 {
+		conditions = append(conditions, bson.M{"tags": bson.M{"$in": source.Tags}})
+	}
+	if source.Category != "" {
+		conditions = append(conditions, bson.M{"category": source.Category})
+	}
+	if len(source.ColorBuckets) > 0 {
+		conditions = append(conditions, bson.M{"colorBuckets": bson.M{"$in": source.ColorBuckets}})
+	} else if buckets := colorBucketsFromParams(source.Parameters); len(buckets) > 0 {
+		conditions = append(conditions, bson.M{"colorBuckets": bson.M{"$in": buckets}})
+	}
+	if len(conditions) == 0 {
+		conditions = append(conditions, bson.M{"isPublic": true})
+	}
+
+	filter := bson.M{
+		"isPublic": true,
+		"_id":      bson.M{"$ne": objectID},
+		"$or":      conditions,
+	}
+
+	cursor, err := h.db.Artworks().Find(context.TODO(), filter, options.Find().SetLimit(120).SetSort(bson.M{"metrics.likes": -1}))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch similar artworks"})
+		return
+	}
+	defer cursor.Close(context.TODO())
+
+	sourcePattern := getString(source.Parameters, "pattern", "")
+	sourceTagSet := make(map[string]struct{}, len(source.Tags))
+	for _, t := range source.Tags {
+		sourceTagSet[strings.ToLower(strings.TrimSpace(t))] = struct{}{}
+	}
+	sourceBuckets := source.ColorBuckets
+	if len(sourceBuckets) == 0 {
+		sourceBuckets = colorBucketsFromParams(source.Parameters)
+	}
+	sourceBucketSet := make(map[int]struct{}, len(sourceBuckets))
+	for _, b := range sourceBuckets {
+		sourceBucketSet[b] = struct{}{}
+	}
+
+	var ranked []scoredArtwork
+	for cursor.Next(context.TODO()) {
+		var candidate models.Artwork
+		if cursor.Decode(&candidate) != nil {
+			continue
+		}
+		score := similarityScore(source, candidate, sourceTagSet, sourceBucketSet, sourcePattern)
+		if score > 0 {
+			ranked = append(ranked, scoredArtwork{artwork: candidate, score: score})
+		}
+	}
+
+	sortScoredArtworks(ranked)
+
+	if len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+	out := make([]models.Artwork, len(ranked))
+	for i, s := range ranked {
+		out[i] = s.artwork
+	}
+
+	result := h.enrichForViewer(c, h.populateUsernames(out))
+	c.JSON(http.StatusOK, result)
+}
+
+func similarityScore(source, candidate models.Artwork, sourceTags map[string]struct{}, sourceBuckets map[int]struct{}, sourcePattern string) int {
+	score := 0
+	for _, t := range candidate.Tags {
+		if _, ok := sourceTags[strings.ToLower(strings.TrimSpace(t))]; ok {
+			score += 12
+		}
+	}
+	if source.Category != "" && candidate.Category == source.Category {
+		score += 15
+	}
+	cBuckets := candidate.ColorBuckets
+	if len(cBuckets) == 0 {
+		cBuckets = colorBucketsFromParams(candidate.Parameters)
+	}
+	for _, b := range cBuckets {
+		if _, ok := sourceBuckets[b]; ok {
+			score += 8
+		}
+	}
+	if sourcePattern != "" && getString(candidate.Parameters, "pattern", "") == sourcePattern {
+		score += 10
+	}
+	if candidate.UserID == source.UserID {
+		score -= 3
+	}
+	return score
+}
+
+func sortScoredArtworks(items []scoredArtwork) {
+	for i := 0; i < len(items); i++ {
+		for j := i + 1; j < len(items); j++ {
+			if items[j].score > items[i].score {
+				items[i], items[j] = items[j], items[i]
+			}
+		}
+	}
 }
 
 // RecordArtworkView increments views once per viewer per artwork (per browser session on client).
@@ -328,10 +490,29 @@ func (h *ArtworkHandler) RecordArtworkView(c *gin.Context) {
 		artwork.Metrics.Views++
 	}
 
+	h.recordRecentlyViewed(c, objectID)
+
 	c.JSON(http.StatusOK, gin.H{
 		"views":   artwork.Metrics.Views,
 		"counted": counted,
 	})
+}
+
+func (h *ArtworkHandler) recordRecentlyViewed(c *gin.Context, artworkID primitive.ObjectID) {
+	userID, ok := c.Get("userID")
+	if !ok {
+		return
+	}
+	uid := userID.(primitive.ObjectID)
+	_, _ = h.db.RecentlyViewed().UpdateOne(
+		context.TODO(),
+		bson.M{"userId": uid, "artworkId": artworkID},
+		bson.M{
+			"$set":         bson.M{"viewedAt": time.Now()},
+			"$setOnInsert": bson.M{"userId": uid, "artworkId": artworkID},
+		},
+		options.Update().SetUpsert(true),
+	)
 }
 
 func (h *ArtworkHandler) viewerKey(c *gin.Context) string {
@@ -353,7 +534,7 @@ func (h *ArtworkHandler) GeneratePreview(c *gin.Context) {
 		return
 	}
 
-	imgPath, err := h.persistImage(models.CreateArtworkRequest{
+	uploaded, err := h.persistPreviewImage(models.CreateArtworkRequest{
 		Title:      "preview",
 		Parameters: req.Parameters,
 		ImageData:  req.ImageData,
@@ -362,7 +543,42 @@ func (h *ArtworkHandler) GeneratePreview(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"previewUrl": imgPath})
+	c.JSON(http.StatusOK, gin.H{
+		"previewUrl": uploaded.URL,
+		"publicId":   uploaded.PublicID,
+	})
+}
+
+// DeletePreview removes a temporary server-generated preview from Cloudinary.
+func (h *ArtworkHandler) DeletePreview(c *gin.Context) {
+	if h.cloudinary == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Cloudinary service is not initialized"})
+		return
+	}
+
+	var req struct {
+		PublicID string `json:"publicId"`
+		URL      string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	publicID := strings.TrimSpace(req.PublicID)
+	if publicID == "" && strings.TrimSpace(req.URL) != "" {
+		publicID = cloudinary.PublicIDFromURL(req.URL)
+	}
+	if publicID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "publicId or url required"})
+		return
+	}
+
+	if err := h.cloudinary.DeleteByPublicID(context.TODO(), publicID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
 
 func (h *ArtworkHandler) CreateArtwork(c *gin.Context) {
@@ -392,11 +608,12 @@ func (h *ArtworkHandler) CreateArtwork(c *gin.Context) {
 	}
 
 	artwork := models.Artwork{
-		Title:       req.Title,
-		Description: req.Description,
-		UserID:      userID.(primitive.ObjectID),
-		Parameters:  req.Parameters,
-		Tags:        req.Tags,
+		Title:        req.Title,
+		Description:  req.Description,
+		UserID:       userID.(primitive.ObjectID),
+		Parameters:   req.Parameters,
+		ColorBuckets: colorBucketsFromParams(req.Parameters),
+		Tags:         req.Tags,
 		IsPublic:    req.IsPublic,
 		Category:    req.Category,
 		RemixOfID:   remixOfID,
@@ -456,12 +673,45 @@ func (h *ArtworkHandler) persistImage(req models.CreateArtworkRequest) (string, 
 			}
 		}
 
-		// Upload to Cloudinary
-		imageURL, err := h.cloudinary.UploadImage(ctx, imageData, "artworks")
+		uploaded, err := h.cloudinary.UploadImage(ctx, imageData, "artworks")
 		if err != nil {
 			return "", err
 		}
-		return imageURL, nil
+		return uploaded.URL, nil
+}
+
+func (h *ArtworkHandler) persistPreviewImage(req models.CreateArtworkRequest) (cloudinary.UploadResult, error) {
+	ctx := context.Background()
+	if h.cloudinary == nil {
+		return cloudinary.UploadResult{}, fmt.Errorf("Cloudinary service is not initialized")
+	}
+
+	var imageData []byte
+	var err error
+
+	if strings.TrimSpace(req.ImageData) != "" {
+		imageData, err = generator.DecodeBase64ToBytes(req.ImageData)
+		if err != nil {
+			return cloudinary.UploadResult{}, err
+		}
+	} else {
+		params := generator.Params{
+			Colors:     extractColors(req.Parameters),
+			Pattern:    getString(req.Parameters, "pattern", "random"),
+			Complexity: getInt(req.Parameters, "complexity", 5),
+			Seed:       int64(getInt(req.Parameters, "seed", int(time.Now().Unix()))),
+		}
+		imageData, err = generator.GeneratePNGBytes(params)
+		if err != nil {
+			return cloudinary.UploadResult{}, err
+		}
+	}
+
+	return h.cloudinary.UploadImage(ctx, imageData, cloudinary.PreviewFolder)
+}
+
+func colorBucketsFromParams(params map[string]any) []int {
+	return colorsearch.BucketsFromHexColors(extractColors(params))
 }
 
 func extractColors(params map[string]any) []string {
@@ -544,13 +794,14 @@ func (h *ArtworkHandler) UpdateArtwork(c *gin.Context) {
 
 	update := bson.M{
 		"$set": bson.M{
-			"title":       req.Title,
-			"description": req.Description,
-			"parameters":  req.Parameters,
-			"tags":        req.Tags,
-			"isPublic":    req.IsPublic,
-			"marketplace": req.Marketplace,
-			"updatedAt":   time.Now(),
+			"title":        req.Title,
+			"description":  req.Description,
+			"parameters":   req.Parameters,
+			"colorBuckets": colorBucketsFromParams(req.Parameters),
+			"tags":         req.Tags,
+			"isPublic":     req.IsPublic,
+			"marketplace":  req.Marketplace,
+			"updatedAt":    time.Now(),
 		},
 	}
 
@@ -790,6 +1041,104 @@ func (h *ArtworkHandler) SearchArtworks(c *gin.Context) {
 
 	result := h.enrichForViewer(c, h.populateUsernames(artworks))
 	c.JSON(http.StatusOK, result)
+}
+
+// SearchArtworksByColor finds public artworks whose palette is close to the query color (hex).
+func (h *ArtworkHandler) SearchArtworksByColor(c *gin.Context) {
+	colorHex := strings.TrimSpace(c.Query("color"))
+	if colorHex == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "color query parameter required (hex, e.g. #FF6B6B)"})
+		return
+	}
+	if !strings.HasPrefix(colorHex, "#") {
+		colorHex = "#" + colorHex
+	}
+
+	tolerance, _ := strconv.ParseFloat(c.DefaultQuery("tolerance", "35"), 64)
+	if tolerance < 5 {
+		tolerance = 5
+	}
+	if tolerance > 90 {
+		tolerance = 90
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	centerHue, ok := colorsearch.HueDegrees(colorHex)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid color hex"})
+		return
+	}
+
+	bucketFilter := colorsearch.NeighborBuckets(centerHue, tolerance)
+	filter := bson.M{
+		"isPublic": true,
+		"$or": []bson.M{
+			{"colorBuckets": bson.M{"$in": bucketFilter}},
+			{"parameters.colors": bson.M{"$exists": true}},
+		},
+	}
+
+	cursor, err := h.db.Artworks().Find(context.TODO(), filter, options.Find().SetSort(bson.M{"createdAt": -1}))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Search failed"})
+		return
+	}
+	defer cursor.Close(context.TODO())
+
+	var matched []models.Artwork
+	for cursor.Next(context.TODO()) {
+		var artwork models.Artwork
+		if cursor.Decode(&artwork) != nil {
+			continue
+		}
+		palette := extractColors(artwork.Parameters)
+		if len(artwork.ColorBuckets) == 0 && len(palette) > 0 {
+			// Legacy documents without indexed buckets
+			if !colorsearch.MatchesPalette(colorHex, palette, tolerance) {
+				continue
+			}
+		} else if len(palette) > 0 {
+			if !colorsearch.MatchesPalette(colorHex, palette, tolerance) {
+				continue
+			}
+		} else {
+			continue
+		}
+		matched = append(matched, artwork)
+	}
+
+	total := int64(len(matched))
+	skip := (page - 1) * limit
+	end := skip + limit
+	if skip > len(matched) {
+		skip = len(matched)
+	}
+	if end > len(matched) {
+		end = len(matched)
+	}
+	pageItems := matched[skip:end]
+
+	result := h.enrichForViewer(c, h.populateUsernames(pageItems))
+	c.JSON(http.StatusOK, gin.H{
+		"items":      result,
+		"total":      total,
+		"page":       page,
+		"limit":      limit,
+		"hasMore":    int64(page*limit) < total,
+		"color":      colorHex,
+		"tolerance":  tolerance,
+	})
 }
 
 func (h *ArtworkHandler) GetComments(c *gin.Context) {

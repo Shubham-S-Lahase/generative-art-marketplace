@@ -86,8 +86,9 @@ type Artwork struct {
 	IsFeatured  bool               `bson:"isFeatured" json:"isFeatured"`
 	IsVerified  bool                `bson:"isVerified" json:"isVerified"`
 	RemixOfID   *primitive.ObjectID `bson:"remixOf,omitempty" json:"remixOf,omitempty"`
-	Category    string              `bson:"category,omitempty" json:"category,omitempty"`
-	Metrics     ArtworkMetrics     `bson:"metrics" json:"metrics"`
+	Category     string   `bson:"category,omitempty" json:"category,omitempty"`
+	ColorBuckets []int    `bson:"colorBuckets,omitempty" json:"colorBuckets,omitempty"`
+	Metrics      ArtworkMetrics `bson:"metrics" json:"metrics"`
 	Marketplace MarketplaceInfo    `bson:"marketplace,omitempty" json:"marketplace,omitempty"`
 	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
 	UpdatedAt   time.Time          `bson:"updatedAt" json:"updatedAt"`
@@ -184,6 +185,39 @@ type Bookmark struct {
 	UserID    primitive.ObjectID `bson:"userId" json:"userId"`
 	ArtworkID primitive.ObjectID `bson:"artworkId" json:"artworkId"`
 	CreatedAt time.Time          `bson:"createdAt" json:"createdAt"`
+}
+
+// SearchLog records search activity for popular-search suggestions.
+type SearchLog struct {
+	ID        primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	UserID    *primitive.ObjectID `bson:"userId,omitempty" json:"userId,omitempty"`
+	Query     string              `bson:"query" json:"query"`
+	Tags      string              `bson:"tags,omitempty" json:"tags,omitempty"`
+	Category  string              `bson:"category,omitempty" json:"category,omitempty"`
+	CreatedAt time.Time           `bson:"createdAt" json:"createdAt"`
+}
+
+// SavedSearch stores a user's gallery/marketplace filter preset.
+type SavedSearch struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID    primitive.ObjectID `bson:"userId" json:"userId"`
+	Name      string             `bson:"name" json:"name"`
+	Filters   map[string]any     `bson:"filters" json:"filters"`
+	CreatedAt time.Time          `bson:"createdAt" json:"createdAt"`
+	UpdatedAt time.Time          `bson:"updatedAt" json:"updatedAt"`
+}
+
+type CreateSavedSearchRequest struct {
+	Name    string         `json:"name" binding:"required"`
+	Filters map[string]any `json:"filters" binding:"required"`
+}
+
+// RecentlyViewed tracks per-user artwork view history for recommendations UI.
+type RecentlyViewed struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID    primitive.ObjectID `bson:"userId" json:"userId"`
+	ArtworkID primitive.ObjectID `bson:"artworkId" json:"artworkId"`
+	ViewedAt  time.Time          `bson:"viewedAt" json:"viewedAt"`
 }
 
 type Notification struct {
