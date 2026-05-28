@@ -209,6 +209,10 @@ const api = {
     const res = await client.get(`/users/${username}/artworks`);
     return res.data;
   },
+  async searchUsers(q: string) {
+    const res = await client.get('/users/search', { params: { q } });
+    return res.data;
+  },
   async follow(userId) {
     const res = await client.post(`/users/${userId}/follow`);
     return res.data;
@@ -233,6 +237,18 @@ const api = {
   },
   async getDashboard() {
     const res = await client.get('/me/dashboard');
+    return res.data;
+  },
+  async getMessageConversations() {
+    const res = await client.get('/me/messages/conversations');
+    return res.data;
+  },
+  async getConversationMessages(userId: string) {
+    const res = await client.get(`/me/messages/${userId}`);
+    return res.data;
+  },
+  async sendDirectMessage(receiverId: string, text: string) {
+    const res = await client.post('/me/messages', { receiverId, text });
     return res.data;
   },
   async getAnalytics() {

@@ -86,6 +86,13 @@ func (db *MongoDB) ensureIndexes(ctx context.Context) {
 	if err != nil {
 		log.Printf("search_logs TTL index: %v", err)
 	}
+	_, err = db.DirectMessages().Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "participants", Value: 1}, {Key: "createdAt", Value: -1}}},
+		{Keys: bson.D{{Key: "receiverId", Value: 1}, {Key: "createdAt", Value: -1}}},
+	})
+	if err != nil {
+		log.Printf("direct_messages indexes: %v", err)
+	}
 }
 
 func (db *MongoDB) Close(ctx context.Context) error {
@@ -103,6 +110,7 @@ func (db *MongoDB) Bookmarks() *mongo.Collection      { return db.Database.Colle
 func (db *MongoDB) RecentlyViewed() *mongo.Collection { return db.Database.Collection("recently_viewed") }
 func (db *MongoDB) SearchLogs() *mongo.Collection     { return db.Database.Collection("search_logs") }
 func (db *MongoDB) SavedSearches() *mongo.Collection  { return db.Database.Collection("saved_searches") }
+func (db *MongoDB) DirectMessages() *mongo.Collection { return db.Database.Collection("direct_messages") }
 func (db *MongoDB) Notifications() *mongo.Collection { return db.Database.Collection("notifications") }
 func (db *MongoDB) Sessions() *mongo.Collection      { return db.Database.Collection("sessions") }
 func (db *MongoDB) Purchases() *mongo.Collection     { return db.Database.Collection("purchases") }

@@ -43,6 +43,10 @@ func createNotificationIfAllowed(db *database.MongoDB, userID primitive.ObjectID
 			if !prefs.Purchases {
 				return
 			}
+		case "message":
+			if !prefs.Comments {
+				return
+			}
 		}
 	}
 	notification := models.Notification{

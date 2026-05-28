@@ -24,6 +24,7 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	presetHandler := handlers.NewPresetHandler(db)
 	miscHandler := handlers.NewMiscHandler(db)
 	discoveryHandler := handlers.NewDiscoveryHandler(db)
+	messageHandler := handlers.NewMessageHandler(db)
 
 	rateLimit := middleware.RateLimit(120, time.Minute)
 
@@ -114,6 +115,9 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	protected.GET("/me/dashboard", userHandler.GetDashboardStats)
 	protected.GET("/me/analytics", userHandler.GetAnalytics)
 	protected.GET("/me/analytics/export", userHandler.ExportAnalytics)
+	protected.GET("/me/messages/conversations", messageHandler.GetConversations)
+	protected.GET("/me/messages/:userId", messageHandler.GetConversationMessages)
+	protected.POST("/me/messages", messageHandler.SendMessage)
 
 	protected.POST("/reports", reportHandler.CreateReport)
 

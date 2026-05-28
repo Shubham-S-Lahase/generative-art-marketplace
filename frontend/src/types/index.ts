@@ -246,3 +246,23 @@ export interface SavedSearch {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export interface DirectConversation {
+  peerId: string;
+  peerUsername: string;
+  peerAvatarUrl?: string;
+  lastMessage: string;
+  lastSenderId: string;
+  lastAt: string;
+  unreadCount: number;
+}
+
+export interface DirectMessage {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  text: string;
+  createdAt: string;
+  isMine?: boolean;
+  isRead?: boolean;
+}

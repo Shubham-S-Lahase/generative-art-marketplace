@@ -32,6 +32,8 @@ const NotificationSystem = () => {
         return <UserPlus className="h-5 w-5 text-green-500" />;
       case 'purchase':
         return <ShoppingCart className="h-5 w-5 text-purple-500" />;
+      case 'message':
+        return <MessageCircle className="h-5 w-5 text-indigo-500" />;
       default:
         return <Bell className="h-5 w-5 text-gray-500" />;
     }

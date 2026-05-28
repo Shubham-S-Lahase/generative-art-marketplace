@@ -231,6 +231,16 @@ type Notification struct {
 	CreatedAt time.Time          `bson:"createdAt" json:"createdAt"`
 }
 
+type DirectMessage struct {
+	ID           primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
+	Participants []primitive.ObjectID `bson:"participants" json:"participants"`
+	SenderID     primitive.ObjectID   `bson:"senderId" json:"senderId"`
+	ReceiverID   primitive.ObjectID   `bson:"receiverId" json:"receiverId"`
+	Text         string               `bson:"text" json:"text"`
+	ReadBy       []primitive.ObjectID `bson:"readBy" json:"readBy"`
+	CreatedAt    time.Time            `bson:"createdAt" json:"createdAt"`
+}
+
 type SessionParticipant struct {
 	UserID   primitive.ObjectID `bson:"userId" json:"userId"`
 	Username string             `bson:"username" json:"username"`

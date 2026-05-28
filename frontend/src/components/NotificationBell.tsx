@@ -36,6 +36,8 @@ const NotificationBell = () => {
         return <UserPlus className="h-4 w-4 text-green-500 shrink-0" />;
       case 'purchase':
         return <ShoppingCart className="h-4 w-4 text-purple-500 shrink-0" />;
+      case 'message':
+        return <MessageCircle className="h-4 w-4 text-indigo-500 shrink-0" />;
       default:
         return <Bell className="h-4 w-4 text-gray-500 shrink-0" />;
     }
@@ -67,6 +69,8 @@ const NotificationBell = () => {
       navigate(`/artwork/${n.sourceId}`);
     } else if (n.type === 'follow') {
       navigate('/dashboard');
+    } else if (n.type === 'message') {
+      navigate('/messages');
     }
   };
 
