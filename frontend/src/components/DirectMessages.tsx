@@ -308,6 +308,66 @@ const DirectMessages = () => {
     }));
   };
 
+  const removeConversationLocally = useCallback(
+    (conversationId: string) => {
+      setConversationsById((prev) => {
+        if (!prev[conversationId]) return prev;
+        const next = { ...prev };
+        delete next[conversationId];
+        return next;
+      });
+      setConversationOrder((prev) => prev.filter((id) => id !== conversationId));
+      setMessagesByConversationId((prev) => {
+        if (!prev[conversationId]) return prev;
+        const next = { ...prev };
+        delete next[conversationId];
+        return next;
+      });
+      setPendingByClientMessageId((prev) => {
+        const next: PendingByClientMessageId = {};
+        Object.entries(prev).forEach(([key, value]) => {
+          if (value.conversationId !== conversationId) {
+            next[key] = value;
+          }
+        });
+        return next;
+      });
+      if (activeConversationId === conversationId) {
+        const fallback = conversationOrder.find((id) => id !== conversationId) || '';
+        setActiveConversationId(fallback);
+      }
+    },
+    [activeConversationId, conversationOrder]
+  );
+
+  const deleteConversation = async (
+    event: React.MouseEvent<HTMLButtonElement>,
+    conversationId: string
+  ) => {
+    event.stopPropagation();
+    if (!window.confirm('Delete this chat for you?')) return;
+    try {
+      await api.deleteConversation(conversationId);
+      removeConversationLocally(conversationId);
+    } catch {
+      // No-op for now; can be replaced by toast.
+    }
+  };
+
+  useEffect(() => {
+    const onConversationDeleted = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { conversationId?: string; deletedBy?: string }
+        | undefined;
+      const conversationId = String(detail?.conversationId || '');
+      if (!conversationId) return;
+      removeConversationLocally(conversationId);
+    };
+    window.addEventListener('realtime:conversation-deleted', onConversationDeleted);
+    return () =>
+      window.removeEventListener('realtime:conversation-deleted', onConversationDeleted);
+  }, [removeConversationLocally]);
+
   const sendMessage = async () => {
     const text = draft.trim();
     if (!activeConversationId || !text || sending) return;
@@ -469,11 +529,22 @@ const DirectMessages = () => {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium text-sm text-gray-900 dark:text-white truncate">@{c.peerUsername}</span>
-                        {c.unreadCount > 0 && (
-                          <span className="text-[10px] bg-red-500 text-white rounded-full px-1.5 py-0.5">
-                            {c.unreadCount}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {c.unreadCount > 0 && (
+                            <span className="text-[10px] bg-red-500 text-white rounded-full px-1.5 py-0.5">
+                              {c.unreadCount}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(event) => deleteConversation(event, c.id)}
+                            className="text-[10px] text-gray-400 hover:text-red-500"
+                            aria-label="Delete conversation"
+                            title="Delete chat"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
                       <p className="text-xs text-gray-500 truncate">{c.lastMessagePreview || 'Start chatting'}</p>
                     </button>

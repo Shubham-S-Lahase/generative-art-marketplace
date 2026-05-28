@@ -245,6 +245,7 @@ type Conversation struct {
 	ID                 primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
 	ParticipantIDs     []primitive.ObjectID `bson:"participantIds" json:"participantIds"`
 	ParticipantKey     string               `bson:"participantKey" json:"participantKey"`
+	HiddenFor          []primitive.ObjectID `bson:"hiddenFor,omitempty" json:"-"`
 	LastMessageID      *primitive.ObjectID  `bson:"lastMessageId,omitempty" json:"lastMessageId,omitempty"`
 	LastMessageAt      *time.Time           `bson:"lastMessageAt,omitempty" json:"lastMessageAt,omitempty"`
 	LastMessagePreview string               `bson:"lastMessagePreview,omitempty" json:"lastMessagePreview,omitempty"`
@@ -270,6 +271,7 @@ type ConversationRead struct {
 	ConversationID     primitive.ObjectID `bson:"conversationId" json:"conversationId"`
 	UserID             primitive.ObjectID `bson:"userId" json:"userId"`
 	LastReadMessageSeq int64              `bson:"lastReadMessageSeq" json:"lastReadMessageSeq"`
+	LastClearedSeq     int64              `bson:"lastClearedSeq,omitempty" json:"lastClearedSeq,omitempty"`
 	UpdatedAt          time.Time          `bson:"updatedAt" json:"updatedAt"`
 }
 

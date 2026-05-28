@@ -70,6 +70,9 @@ func (h *MessageHandler) CreateOrGetConversation(c *gin.Context) {
 			"updatedAt":      now,
 			"lastSeq":        int64(0),
 		},
+		"$pull": bson.M{
+			"hiddenFor": me,
+		},
 	}
 	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
 
@@ -96,7 +99,7 @@ func (h *MessageHandler) GetConversations(c *gin.Context) {
 
 	cursor, err := h.db.Conversations().Find(
 		context.TODO(),
-		bson.M{"participantIds": me},
+		bson.M{"participantIds": me, "hiddenFor": bson.M{"$ne": me}},
 		options.Find().SetSort(bson.D{{Key: "updatedAt", Value: -1}}).SetLimit(500),
 	)
 	if err != nil {
@@ -115,15 +118,15 @@ func (h *MessageHandler) GetConversations(c *gin.Context) {
 		context.TODO(),
 		bson.M{"conversationId": bson.M{"$in": conversationIDs(convs)}},
 	)
-	readStateByConversation := map[primitive.ObjectID]map[primitive.ObjectID]int64{}
+	readStateByConversation := map[primitive.ObjectID]map[primitive.ObjectID]models.ConversationRead{}
 	if err == nil {
 		var reads []models.ConversationRead
 		if readCursor.All(context.TODO(), &reads) == nil {
 			for _, r := range reads {
 				if _, ok := readStateByConversation[r.ConversationID]; !ok {
-					readStateByConversation[r.ConversationID] = map[primitive.ObjectID]int64{}
+					readStateByConversation[r.ConversationID] = map[primitive.ObjectID]models.ConversationRead{}
 				}
-				readStateByConversation[r.ConversationID][r.UserID] = r.LastReadMessageSeq
+				readStateByConversation[r.ConversationID][r.UserID] = r
 			}
 		}
 		_ = readCursor.Close(context.TODO())
@@ -131,13 +134,14 @@ func (h *MessageHandler) GetConversations(c *gin.Context) {
 
 	out := make([]gin.H, 0, len(convs))
 	for _, conv := range convs {
-		myLastReadSeq := readStateByConversation[conv.ID][me]
+		myRead := readStateByConversation[conv.ID][me]
+		myVisibleFrom := maxInt64(myRead.LastReadMessageSeq, myRead.LastClearedSeq)
 		peerLastReadSeq := readSeqForPeer(conv, me, readStateByConversation[conv.ID])
-		unread := conv.LastSeq - myLastReadSeq
+		unread := conv.LastSeq - myVisibleFrom
 		if unread < 0 {
 			unread = 0
 		}
-		out = append(out, h.conversationResponse(me, conv, unread, myLastReadSeq, peerLastReadSeq))
+		out = append(out, h.conversationResponse(me, conv, unread, myRead.LastReadMessageSeq, peerLastReadSeq))
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -196,11 +200,16 @@ func (h *MessageHandler) GetConversationMessages(c *gin.Context) {
 	}
 	sort.Slice(msgs, func(i, j int) bool { return msgs[i].Seq < msgs[j].Seq })
 	readState := readStateForConversation(conv.ID, h.db)
-	myLastReadSeq := readState[me]
+	myRead := readState[me]
+	myLastReadSeq := myRead.LastReadMessageSeq
+	myLastClearedSeq := myRead.LastClearedSeq
 	peerLastReadSeq := readSeqForPeer(conv, me, readState)
 
 	out := make([]gin.H, 0, len(msgs))
 	for _, msg := range msgs {
+		if myLastClearedSeq > 0 && msg.Seq <= myLastClearedSeq {
+			continue
+		}
 		out = append(out, gin.H{
 			"id":              msg.ID.Hex(),
 			"conversationId":  conversationID.Hex(),
@@ -214,9 +223,10 @@ func (h *MessageHandler) GetConversationMessages(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"messages":        out,
-		"myLastReadSeq":   myLastReadSeq,
-		"peerLastReadSeq": peerLastReadSeq,
+		"messages":         out,
+		"myLastReadSeq":    myLastReadSeq,
+		"myLastClearedSeq": myLastClearedSeq,
+		"peerLastReadSeq":  peerLastReadSeq,
 	})
 }
 
@@ -293,6 +303,9 @@ func (h *MessageHandler) SendConversationMessage(c *gin.Context) {
 				"updatedAt":          now,
 				"lastMessageAt":      now,
 				"lastMessagePreview": text,
+			},
+			"$pull": bson.M{
+				"hiddenFor": bson.M{"$in": []primitive.ObjectID{me, peerFromConversation(conv, me)}},
 			},
 		},
 		options.FindOneAndUpdate().SetReturnDocument(options.After),
@@ -386,6 +399,60 @@ func (h *MessageHandler) MarkConversationRead(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+func (h *MessageHandler) DeleteConversation(c *gin.Context) {
+	userID, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	me := userID.(primitive.ObjectID)
+
+	conversationID, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid conversation ID"})
+		return
+	}
+	conv, err := h.requireConversationMembership(me, conversationID)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
+			return
+		}
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not a conversation participant"})
+		return
+	}
+
+	_, err = h.db.Conversations().UpdateOne(
+		context.TODO(),
+		bson.M{"_id": conversationID},
+		bson.M{
+			"$addToSet": bson.M{"hiddenFor": me},
+			"$set":      bson.M{"updatedAt": time.Now()},
+		},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete conversation"})
+		return
+	}
+	_, _ = h.db.ConversationReads().UpdateOne(
+		context.TODO(),
+		bson.M{"conversationId": conversationID, "userId": me},
+		bson.M{
+			"$set": bson.M{
+				"lastClearedSeq": conv.LastSeq,
+				"updatedAt":      time.Now(),
+			},
+			"$max": bson.M{
+				"lastReadMessageSeq": conv.LastSeq,
+			},
+		},
+		options.Update().SetUpsert(true),
+	)
+
+	h.emitRealtimeConversationDeleted(conv, me)
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func (h *MessageHandler) emitRealtimeConversationMessage(msg models.ConversationMessage, conv models.Conversation, peerID primitive.ObjectID) {
 	if realtimeUserHub == nil {
 		return
@@ -448,6 +515,24 @@ func (h *MessageHandler) emitRealtimeMessageRead(conv models.Conversation, reade
 	}
 	realtimeUserHub.BroadcastToUser(readerID.Hex(), payload)
 	realtimeUserHub.BroadcastToUser(peerID.Hex(), payload)
+}
+
+func (h *MessageHandler) emitRealtimeConversationDeleted(conv models.Conversation, deletedBy primitive.ObjectID) {
+	if realtimeUserHub == nil {
+		return
+	}
+	payload, err := json.Marshal(gin.H{
+		"type": "conversation.deleted",
+		"payload": gin.H{
+			"conversationId": conv.ID.Hex(),
+			"deletedBy":      deletedBy.Hex(),
+		},
+		"sentAt": time.Now().UnixMilli(),
+	})
+	if err != nil {
+		return
+	}
+	realtimeUserHub.BroadcastToUser(deletedBy.Hex(), payload)
 }
 
 func sortedParticipantIDs(a, b primitive.ObjectID) []primitive.ObjectID {
@@ -557,8 +642,8 @@ func conversationIDs(convs []models.Conversation) []primitive.ObjectID {
 	return ids
 }
 
-func readStateForConversation(conversationID primitive.ObjectID, db *database.MongoDB) map[primitive.ObjectID]int64 {
-	state := map[primitive.ObjectID]int64{}
+func readStateForConversation(conversationID primitive.ObjectID, db *database.MongoDB) map[primitive.ObjectID]models.ConversationRead {
+	state := map[primitive.ObjectID]models.ConversationRead{}
 	cursor, err := db.ConversationReads().Find(context.TODO(), bson.M{"conversationId": conversationID})
 	if err != nil {
 		return state
@@ -569,19 +654,26 @@ func readStateForConversation(conversationID primitive.ObjectID, db *database.Mo
 		return state
 	}
 	for _, read := range reads {
-		state[read.UserID] = read.LastReadMessageSeq
+		state[read.UserID] = read
 	}
 	return state
 }
 
-func readSeqForPeer(conv models.Conversation, me primitive.ObjectID, readState map[primitive.ObjectID]int64) int64 {
+func readSeqForPeer(conv models.Conversation, me primitive.ObjectID, readState map[primitive.ObjectID]models.ConversationRead) int64 {
 	if readState == nil {
 		return 0
 	}
 	for _, participantID := range conv.ParticipantIDs {
 		if participantID != me {
-			return readState[participantID]
+			return readState[participantID].LastReadMessageSeq
 		}
 	}
 	return 0
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }

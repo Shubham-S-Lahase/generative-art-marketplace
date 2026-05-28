@@ -147,6 +147,11 @@ const useNotificationsState = (): NotificationsContextValue => {
               new CustomEvent('realtime:conversation-updated', { detail: data.payload })
             );
           }
+          if (data?.type === 'conversation.deleted' && data?.payload) {
+            window.dispatchEvent(
+              new CustomEvent('realtime:conversation-deleted', { detail: data.payload })
+            );
+          }
         } catch {
           // Ignore malformed payloads
         }

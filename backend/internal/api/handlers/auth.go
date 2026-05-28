@@ -189,7 +189,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	_, _ = h.db.PasswordResets().InsertOne(context.TODO(), reset)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "If that email exists, a reset link has been sent.",
+		"message":    "If that email exists, a reset link has been sent.",
 		"resetToken": token,
 	})
 }
@@ -235,12 +235,17 @@ func (h *AuthHandler) Ping(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
 		return
 	}
-	email, _ := c.Get("email")
-	token, err := auth.GenerateToken(h.cfg.JWTSecret, userID.(primitive.ObjectID), email.(string), h.cfg.TokenTTL)
+	userObjID, ok := userID.(primitive.ObjectID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid session user"})
+		return
+	}
+	emailVal, _ := c.Get("userEmail")
+	email, _ := emailVal.(string)
+	token, err := auth.GenerateToken(h.cfg.JWTSecret, userObjID, email, h.cfg.TokenTTL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to issue token"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"token": token})
 }
-

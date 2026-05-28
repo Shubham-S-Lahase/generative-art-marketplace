@@ -259,6 +259,10 @@ const api = {
     const res = await client.post(`/me/conversations/${conversationId}/read`, { lastReadSeq });
     return res.data;
   },
+  async deleteConversation(conversationId: string) {
+    const res = await client.delete(`/me/conversations/${conversationId}`);
+    return res.data;
+  },
   async getAnalytics() {
     const res = await client.get('/me/analytics');
     return res.data;

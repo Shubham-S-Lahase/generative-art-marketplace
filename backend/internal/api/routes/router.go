@@ -123,6 +123,7 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, userHub
 	protected.GET("/me/conversations/:id/messages", messageHandler.GetConversationMessages)
 	protected.POST("/me/conversations/:id/messages", messageHandler.SendConversationMessage)
 	protected.POST("/me/conversations/:id/read", messageHandler.MarkConversationRead)
+	protected.DELETE("/me/conversations/:id", messageHandler.DeleteConversation)
 
 	protected.POST("/reports", reportHandler.CreateReport)
 
