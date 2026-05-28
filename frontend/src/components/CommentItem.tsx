@@ -2,6 +2,38 @@ import React, { useEffect, useState } from 'react';
 import { Heart, Reply, Trash2 } from 'lucide-react';
 import { commentId, isCommentOwner } from '../utils/comments';
 
+const mentionRegex = /(^|\s)(@[a-zA-Z0-9_]{3,30})/g;
+
+const renderCommentText = (text = '') => {
+  const lines = String(text).split('\n');
+  return lines.map((line, lineIndex) => {
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    line.replace(mentionRegex, (match, prefix, mention, offset) => {
+      if (offset > lastIndex) {
+        parts.push(line.slice(lastIndex, offset));
+      }
+      if (prefix) parts.push(prefix);
+      parts.push(
+        <span key={`${lineIndex}-${offset}-m`} className="text-indigo-600 dark:text-indigo-400 font-medium">
+          {mention}
+        </span>
+      );
+      lastIndex = offset + match.length;
+      return match;
+    });
+    if (lastIndex < line.length) {
+      parts.push(line.slice(lastIndex));
+    }
+    return (
+      <React.Fragment key={`line-${lineIndex}`}>
+        {parts.length ? parts : line}
+        {lineIndex < lines.length - 1 ? <br /> : null}
+      </React.Fragment>
+    );
+  });
+};
+
 const CommentItem = ({
   comment,
   depth = 0,
@@ -68,7 +100,9 @@ const CommentItem = ({
           </div>
         ) : (
           <>
-            <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{comment.text}</p>
+            <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
+              {renderCommentText(comment.text || '')}
+            </p>
             <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-gray-500">
               <span>
                 by {comment.username || 'Unknown User'}
@@ -132,7 +166,7 @@ const CommentItem = ({
           <input
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
-            placeholder="Write a reply..."
+            placeholder="Write a reply... (use @username to mention)"
             autoFocus
             className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
             onKeyDown={(e) => {

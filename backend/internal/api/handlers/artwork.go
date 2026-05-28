@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,8 @@ type ArtworkHandler struct {
 	cfg        *config.Config
 	cloudinary *cloudinary.Service
 }
+
+var mentionPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9_])@([a-z0-9_]{3,30})`)
 
 func NewArtworkHandler(db *database.MongoDB, cfg *config.Config, cloudinaryService *cloudinary.Service) *ArtworkHandler {
 	return &ArtworkHandler{db: db, cfg: cfg, cloudinary: cloudinaryService}
@@ -1216,11 +1219,17 @@ func (h *ArtworkHandler) AddComment(c *gin.Context) {
 		return
 	}
 
+	commentText := strings.TrimSpace(req.Text)
+	if commentText == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Comment text cannot be empty"})
+		return
+	}
+
 	now := time.Now()
 	comment := bson.M{
 		"artworkId": objectID,
 		"userId":    userID,
-		"text":      strings.TrimSpace(req.Text),
+		"text":      commentText,
 		"createdAt": now,
 		"updatedAt": now,
 	}
@@ -1255,12 +1264,15 @@ func (h *ArtworkHandler) AddComment(c *gin.Context) {
 	)
 
 	var art models.Artwork
+	notified := make(map[primitive.ObjectID]bool)
 	if err := h.db.Artworks().FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&art); err == nil {
 		uid := userID.(primitive.ObjectID)
 		if art.UserID != uid {
 			src := objectID
 			createNotificationIfAllowed(h.db, art.UserID, "comment", "New comment", "Someone commented on your artwork: "+art.Title, &src)
+			notified[art.UserID] = true
 		}
+		h.notifyMentionedUsers(uid, objectID, art.Title, commentText, notified)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -1323,7 +1335,69 @@ func (h *ArtworkHandler) UpdateComment(c *gin.Context) {
 		return
 	}
 
+	var art models.Artwork
+	if err := h.db.Artworks().FindOne(context.TODO(), bson.M{"_id": artworkObjectID}).Decode(&art); err == nil {
+		h.notifyMentionedUsers(userID.(primitive.ObjectID), artworkObjectID, art.Title, text, map[primitive.ObjectID]bool{})
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Comment updated successfully"})
+}
+
+func extractMentionUsernames(text string) []string {
+	matches := mentionPattern.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		u := strings.ToLower(strings.TrimSpace(m[1]))
+		if u == "" || seen[u] {
+			continue
+		}
+		seen[u] = true
+		out = append(out, u)
+	}
+	return out
+}
+
+func (h *ArtworkHandler) notifyMentionedUsers(actorID primitive.ObjectID, artworkID primitive.ObjectID, artworkTitle string, text string, alreadyNotified map[primitive.ObjectID]bool) {
+	if len(text) == 0 {
+		return
+	}
+	mentions := extractMentionUsernames(text)
+	if len(mentions) == 0 {
+		return
+	}
+
+	actorName := "Someone"
+	var actor models.User
+	if err := h.db.Users().FindOne(context.TODO(), bson.M{"_id": actorID}).Decode(&actor); err == nil && strings.TrimSpace(actor.Username) != "" {
+		actorName = actor.Username
+	}
+
+	src := artworkID
+	for _, username := range mentions {
+		var target models.User
+		err := h.db.Users().FindOne(context.TODO(), bson.M{
+			"username": bson.M{"$regex": "^" + regexp.QuoteMeta(username) + "$", "$options": "i"},
+		}).Decode(&target)
+		if err != nil || target.ID.IsZero() || target.ID == actorID || alreadyNotified[target.ID] {
+			continue
+		}
+		createNotificationIfAllowed(
+			h.db,
+			target.ID,
+			"mention",
+			"You were mentioned",
+			actorName+" mentioned you in a comment on: "+artworkTitle,
+			&src,
+		)
+		alreadyNotified[target.ID] = true
+	}
 }
 
 func (h *ArtworkHandler) DeleteComment(c *gin.Context) {

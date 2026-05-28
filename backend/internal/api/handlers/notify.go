@@ -31,7 +31,7 @@ func createNotificationIfAllowed(db *database.MongoDB, userID primitive.ObjectID
 			if !prefs.Likes {
 				return
 			}
-		case "comment":
+		case "comment", "mention":
 			if !prefs.Comments {
 				return
 			}
