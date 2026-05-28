@@ -61,10 +61,12 @@ func main() {
 
 	wsHub := websocket.NewHub()
 	go wsHub.Run()
+	userHub := websocket.NewUserHub()
+	go userHub.Run()
 
 	log.Println("Payments: mock checkout UI (development — no real gateway)")
 
-	routes.Register(r, db, wsHub, cfg, cloudinaryService)
+	routes.Register(r, db, wsHub, userHub, cfg, cloudinaryService)
 
 	if err := r.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("server error: %v", err)

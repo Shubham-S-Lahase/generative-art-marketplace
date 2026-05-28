@@ -14,7 +14,7 @@ import (
 )
 
 // Register attaches all REST and WebSocket routes to Gin engine.
-func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *config.Config, cloudinaryService *cloudinary.Service) {
+func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, userHub *websocket.UserHub, cfg *config.Config, cloudinaryService *cloudinary.Service) {
 	artworkHandler := handlers.NewArtworkHandler(db, cfg, cloudinaryService)
 	marketplaceHandler := handlers.NewMarketplaceHandler(db, cfg)
 	sessionHandler := handlers.NewSessionHandler(db, wsHub, cfg)
@@ -25,6 +25,8 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	miscHandler := handlers.NewMiscHandler(db)
 	discoveryHandler := handlers.NewDiscoveryHandler(db)
 	messageHandler := handlers.NewMessageHandler(db)
+	realtimeHandler := handlers.NewRealtimeHandler(cfg, userHub)
+	handlers.SetRealtimeUserHub(userHub)
 
 	rateLimit := middleware.RateLimit(120, time.Minute)
 
@@ -116,9 +118,11 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	protected.GET("/me/dashboard", userHandler.GetDashboardStats)
 	protected.GET("/me/analytics", userHandler.GetAnalytics)
 	protected.GET("/me/analytics/export", userHandler.ExportAnalytics)
-	protected.GET("/me/messages/conversations", messageHandler.GetConversations)
-	protected.GET("/me/messages/:userId", messageHandler.GetConversationMessages)
-	protected.POST("/me/messages", messageHandler.SendMessage)
+	protected.POST("/me/conversations", messageHandler.CreateOrGetConversation)
+	protected.GET("/me/conversations", messageHandler.GetConversations)
+	protected.GET("/me/conversations/:id/messages", messageHandler.GetConversationMessages)
+	protected.POST("/me/conversations/:id/messages", messageHandler.SendConversationMessage)
+	protected.POST("/me/conversations/:id/read", messageHandler.MarkConversationRead)
 
 	protected.POST("/reports", reportHandler.CreateReport)
 
@@ -135,4 +139,5 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	r.GET("/ws/sessions/:id", func(c *gin.Context) {
 		sessionHandler.HandleWebSocket(c)
 	})
+	r.GET("/ws/events", realtimeHandler.HandleUserEventsWS)
 }

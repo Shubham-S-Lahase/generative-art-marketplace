@@ -93,6 +93,27 @@ func (db *MongoDB) ensureIndexes(ctx context.Context) {
 	if err != nil {
 		log.Printf("direct_messages indexes: %v", err)
 	}
+	_, err = db.Conversations().Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "participantKey", Value: 1}}, Options: options.Index().SetUnique(true)},
+		{Keys: bson.D{{Key: "participantIds", Value: 1}, {Key: "updatedAt", Value: -1}}},
+	})
+	if err != nil {
+		log.Printf("conversations indexes: %v", err)
+	}
+	_, err = db.ConversationMessages().Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "conversationId", Value: 1}, {Key: "seq", Value: 1}}, Options: options.Index().SetUnique(true)},
+		{Keys: bson.D{{Key: "conversationId", Value: 1}, {Key: "senderId", Value: 1}, {Key: "clientMessageId", Value: 1}}, Options: options.Index().SetUnique(true).SetSparse(true)},
+	})
+	if err != nil {
+		log.Printf("conversation_messages indexes: %v", err)
+	}
+	_, err = db.ConversationReads().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "conversationId", Value: 1}, {Key: "userId", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		log.Printf("conversation_reads indexes: %v", err)
+	}
 }
 
 func (db *MongoDB) Close(ctx context.Context) error {
@@ -100,22 +121,34 @@ func (db *MongoDB) Close(ctx context.Context) error {
 }
 
 // Collection helpers
-func (db *MongoDB) Users() *mongo.Collection         { return db.Database.Collection("users") }
-func (db *MongoDB) Artworks() *mongo.Collection      { return db.Database.Collection("artworks") }
-func (db *MongoDB) Likes() *mongo.Collection         { return db.Database.Collection("likes") }
-func (db *MongoDB) Comments() *mongo.Collection      { return db.Database.Collection("comments") }
-func (db *MongoDB) CommentLikes() *mongo.Collection  { return db.Database.Collection("comment_likes") }
-func (db *MongoDB) Follows() *mongo.Collection       { return db.Database.Collection("follows") }
-func (db *MongoDB) Bookmarks() *mongo.Collection      { return db.Database.Collection("bookmarks") }
-func (db *MongoDB) RecentlyViewed() *mongo.Collection { return db.Database.Collection("recently_viewed") }
-func (db *MongoDB) SearchLogs() *mongo.Collection     { return db.Database.Collection("search_logs") }
-func (db *MongoDB) SavedSearches() *mongo.Collection  { return db.Database.Collection("saved_searches") }
-func (db *MongoDB) DirectMessages() *mongo.Collection { return db.Database.Collection("direct_messages") }
+func (db *MongoDB) Users() *mongo.Collection        { return db.Database.Collection("users") }
+func (db *MongoDB) Artworks() *mongo.Collection     { return db.Database.Collection("artworks") }
+func (db *MongoDB) Likes() *mongo.Collection        { return db.Database.Collection("likes") }
+func (db *MongoDB) Comments() *mongo.Collection     { return db.Database.Collection("comments") }
+func (db *MongoDB) CommentLikes() *mongo.Collection { return db.Database.Collection("comment_likes") }
+func (db *MongoDB) Follows() *mongo.Collection      { return db.Database.Collection("follows") }
+func (db *MongoDB) Bookmarks() *mongo.Collection    { return db.Database.Collection("bookmarks") }
+func (db *MongoDB) RecentlyViewed() *mongo.Collection {
+	return db.Database.Collection("recently_viewed")
+}
+func (db *MongoDB) SearchLogs() *mongo.Collection    { return db.Database.Collection("search_logs") }
+func (db *MongoDB) SavedSearches() *mongo.Collection { return db.Database.Collection("saved_searches") }
+func (db *MongoDB) DirectMessages() *mongo.Collection {
+	return db.Database.Collection("direct_messages")
+}
+func (db *MongoDB) Conversations() *mongo.Collection { return db.Database.Collection("conversations") }
+func (db *MongoDB) ConversationMessages() *mongo.Collection {
+	return db.Database.Collection("messages")
+}
+func (db *MongoDB) ConversationReads() *mongo.Collection {
+	return db.Database.Collection("conversation_reads")
+}
 func (db *MongoDB) Notifications() *mongo.Collection { return db.Database.Collection("notifications") }
 func (db *MongoDB) Sessions() *mongo.Collection      { return db.Database.Collection("sessions") }
 func (db *MongoDB) Purchases() *mongo.Collection     { return db.Database.Collection("purchases") }
 func (db *MongoDB) ArtworkViews() *mongo.Collection  { return db.Database.Collection("artwork_views") }
-func (db *MongoDB) Presets() *mongo.Collection         { return db.Database.Collection("presets") }
-func (db *MongoDB) Reports() *mongo.Collection         { return db.Database.Collection("reports") }
-func (db *MongoDB) PasswordResets() *mongo.Collection  { return db.Database.Collection("password_resets") }
-
+func (db *MongoDB) Presets() *mongo.Collection       { return db.Database.Collection("presets") }
+func (db *MongoDB) Reports() *mongo.Collection       { return db.Database.Collection("reports") }
+func (db *MongoDB) PasswordResets() *mongo.Collection {
+	return db.Database.Collection("password_resets")
+}

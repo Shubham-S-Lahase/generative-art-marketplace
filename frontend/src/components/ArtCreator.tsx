@@ -5,6 +5,8 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
 import { debounce, getImageUrl } from '../utils/helpers';
 
+const isMongoObjectId = (id: string) => /^[a-f\d]{24}$/i.test(String(id));
+
 const ArtCreator = () => {
   const { currentUser } = useAuth();
   const location = useLocation();
@@ -46,10 +48,7 @@ const ArtCreator = () => {
   const serverPreviewPublicIdRef = useRef('');
   const serverPreviewUrlRef = useRef('');
   const [sliderComplexity, setSliderComplexity] = useState(5);
-  const [presets, setPresets] = useState(() => {
-    const saved = localStorage.getItem('artPresets');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [presets, setPresets] = useState([]);
   const [presetName, setPresetName] = useState('');
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [history, setHistory] = useState([{ ...parameters }]);
@@ -132,26 +131,36 @@ const ArtCreator = () => {
   const [remixSourceId, setRemixSourceId] = useState(null);
 
   useEffect(() => {
-    const loadServerPresets = async () => {
-      try {
-        const server = await api.getPresets();
-        if (Array.isArray(server) && server.length > 0) {
-          setPresets((prev) => {
-            const merged = [...prev];
-            server.forEach((sp) => {
-              if (!merged.some((p) => p.id === sp.id)) {
-                merged.push({ id: sp.id, name: sp.name, parameters: sp.parameters, isServer: true });
-              }
-            });
-            return merged;
-          });
+    const loadPresets = async () => {
+      if (currentUser) {
+        try {
+          const server = await api.getPresets();
+          setPresets(
+            Array.isArray(server)
+              ? server.map((sp) => ({
+                  id: sp.id,
+                  name: sp.name,
+                  parameters: sp.parameters,
+                  isPublic: sp.isPublic,
+                  userId: sp.userId,
+                }))
+              : []
+          );
+        } catch (e) {
+          console.error('Failed to load server presets', e);
+          setPresets([]);
         }
-      } catch (e) {
-        console.error('Failed to load server presets', e);
+        return;
+      }
+      try {
+        const saved = localStorage.getItem('artPresets');
+        setPresets(saved ? JSON.parse(saved) : []);
+      } catch {
+        setPresets([]);
       }
     };
-    loadServerPresets();
-  }, []);
+    loadPresets();
+  }, [currentUser]);
 
   // Prefill from remix
   useEffect(() => {
@@ -833,26 +842,48 @@ const ArtCreator = () => {
     handleParameterChange('seed', Math.floor(Math.random() * 100000));
   };
 
-  const savePreset = () => {
-    if (!presetName.trim()) {
+  const savePreset = async () => {
+    const name = presetName.trim();
+    if (!name) {
       alert('Please enter a preset name');
       return;
     }
+
+    if (currentUser) {
+      try {
+        const created = await api.createPreset({ name, parameters, isPublic: false });
+        setPresets((prev) => [
+          ...prev,
+          {
+            id: created.id,
+            name: created.name,
+            parameters: created.parameters,
+            isPublic: false,
+            userId: created.userId,
+          },
+        ]);
+        setPresetName('');
+        setShowPresetModal(false);
+        alert('Preset saved!');
+      } catch (error) {
+        const msg = error?.response?.data?.error || error?.message || 'Failed to save preset';
+        alert(msg);
+      }
+      return;
+    }
+
     const newPreset = {
-      id: Date.now().toString(),
-      name: presetName,
+      id: `local-${Date.now()}`,
+      name,
       parameters: { ...parameters },
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     const updatedPresets = [...presets, newPreset];
     setPresets(updatedPresets);
     localStorage.setItem('artPresets', JSON.stringify(updatedPresets));
-    if (currentUser) {
-      api.createPreset({ name: presetName, parameters, isPublic: false }).catch(() => {});
-    }
     setPresetName('');
     setShowPresetModal(false);
-    alert('Preset saved!');
+    alert('Preset saved locally. Sign in to sync presets to your account.');
   };
 
   const loadPreset = (preset) => {
@@ -861,10 +892,26 @@ const ArtCreator = () => {
     generateArt(animationFrame);
   };
 
-  const deletePreset = (presetId) => {
-    if (confirm('Delete this preset?')) {
-      const updatedPresets = presets.filter(p => p.id !== presetId);
-      setPresets(updatedPresets);
+  const deletePreset = async (preset) => {
+    if (preset.isPublic) {
+      alert('Built-in presets cannot be deleted.');
+      return;
+    }
+    if (!confirm(`Delete preset "${preset.name}"?`)) return;
+
+    if (currentUser && isMongoObjectId(String(preset.id))) {
+      try {
+        await api.deletePreset(preset.id);
+      } catch (error) {
+        const msg = error?.response?.data?.error || error?.message || 'Failed to delete preset';
+        alert(msg);
+        return;
+      }
+    }
+
+    const updatedPresets = presets.filter((p) => p.id !== preset.id);
+    setPresets(updatedPresets);
+    if (!currentUser) {
       localStorage.setItem('artPresets', JSON.stringify(updatedPresets));
     }
   };
@@ -1632,12 +1679,15 @@ const ArtCreator = () => {
                         >
                           {preset.name}
                         </button>
-                        <button
-                          onClick={() => deletePreset(preset.id)}
-                          className="text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
-                        >
-                          Delete
-                        </button>
+                        {!preset.isPublic && (
+                          <button
+                            type="button"
+                            onClick={() => deletePreset(preset)}
+                            className="text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>

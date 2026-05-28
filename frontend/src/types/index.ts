@@ -248,21 +248,29 @@ export interface SavedSearch {
 }
 
 export interface DirectConversation {
-  peerId: string;
+  id: string;
+  peerUserId: string;
   peerUsername: string;
   peerAvatarUrl?: string;
-  lastMessage: string;
-  lastSenderId: string;
-  lastAt: string;
+  lastMessagePreview: string;
+  lastMessageAt?: string;
+  updatedAt?: string;
+  lastSeq?: number;
+  myLastReadSeq?: number;
+  peerLastReadSeq?: number;
   unreadCount: number;
 }
 
 export interface DirectMessage {
   id: string;
+  conversationId: string;
   senderId: string;
-  receiverId: string;
+  receiverId?: string;
   text: string;
+  clientMessageId?: string;
+  seq: number;
   createdAt: string;
+  status?: 'sending' | 'sent' | 'read' | 'failed';
   isMine?: boolean;
   isRead?: boolean;
 }

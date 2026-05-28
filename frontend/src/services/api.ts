@@ -240,15 +240,23 @@ const api = {
     return res.data;
   },
   async getMessageConversations() {
-    const res = await client.get('/me/messages/conversations');
+    const res = await client.get('/me/conversations');
     return res.data;
   },
-  async getConversationMessages(userId: string) {
-    const res = await client.get(`/me/messages/${userId}`);
+  async createOrGetConversation(peerUserId: string) {
+    const res = await client.post('/me/conversations', { peerUserId });
     return res.data;
   },
-  async sendDirectMessage(receiverId: string, text: string) {
-    const res = await client.post('/me/messages', { receiverId, text });
+  async getConversationMessages(conversationId: string, params?: { beforeSeq?: number; limit?: number }) {
+    const res = await client.get(`/me/conversations/${conversationId}/messages`, { params });
+    return res.data;
+  },
+  async sendDirectMessage(conversationId: string, text: string, clientMessageId?: string) {
+    const res = await client.post(`/me/conversations/${conversationId}/messages`, { text, clientMessageId });
+    return res.data;
+  },
+  async markConversationRead(conversationId: string, lastReadSeq: number) {
+    const res = await client.post(`/me/conversations/${conversationId}/read`, { lastReadSeq });
     return res.data;
   },
   async getAnalytics() {

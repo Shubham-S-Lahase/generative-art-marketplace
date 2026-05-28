@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, TrendingUp, Star, Clock, Heart, Palette, X, Hash, BookmarkPlus, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import ArtworkCard from './ArtworkCard';
 import ArtworkLightbox from './ArtworkLightbox';
 import api from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { normalizeArtworkCards } from '../utils/artworks';
 import { getLocalRecentlyViewedIds } from '../utils/recentlyViewed';
+import { getImageUrl } from '../utils/helpers';
 import type { Artwork, TrendingTag, PopularSearch, SavedSearch, SavedSearchFilters } from '../types';
 import {
   getLocalSavedSearches,
@@ -250,14 +252,27 @@ const Gallery = () => {
         {recentlyViewed.length > 0 && !colorFilter && (
           <div className="mb-8">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Recently viewed</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
+            <div className="flex gap-4 overflow-x-auto pb-2">
               {recentlyViewed.map((artwork) => (
-                <ArtworkCard
-                  key={artwork.id}
-                  artwork={artwork}
-                  initialBookmarked={bookmarkIds.has(String(artwork.id))}
-                  onPreview={setLightboxArtwork}
-                />
+                <Link
+                  key={String(artwork.id || artwork._id)}
+                  to={`/artwork/${String(artwork.id || artwork._id)}`}
+                  className="group min-w-[180px] max-w-[180px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+                >
+                  <img
+                    src={getImageUrl(artwork.files?.preview || artwork.previewUrl || artwork.imageUrl)}
+                    alt={artwork.title || 'Artwork'}
+                    className="w-full h-28 object-cover bg-gray-100 dark:bg-gray-700"
+                  />
+                  <div className="p-3">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                      {artwork.title || 'Untitled'}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">
+                      by {artwork.username || 'Unknown'}
+                    </p>
+                  </div>
+                </Link>
               ))}
             </div>
           </div>

@@ -2,15 +2,23 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"generative-art-marketplace/internal/models"
+	"generative-art-marketplace/internal/websocket"
 	"generative-art-marketplace/pkg/database"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+var realtimeUserHub *websocket.UserHub
+
+func SetRealtimeUserHub(h *websocket.UserHub) {
+	realtimeUserHub = h
+}
 
 func createNotification(db *database.MongoDB, userID primitive.ObjectID, notifType, title, message string, sourceID *primitive.ObjectID) {
 	createNotificationIfAllowed(db, userID, notifType, title, message, sourceID)
@@ -58,7 +66,41 @@ func createNotificationIfAllowed(db *database.MongoDB, userID primitive.ObjectID
 		IsRead:    false,
 		CreatedAt: time.Now(),
 	}
-	_, _ = db.Notifications().InsertOne(context.TODO(), notification)
+	res, err := db.Notifications().InsertOne(context.TODO(), notification)
+	if err != nil {
+		return
+	}
+	if oid, ok := res.InsertedID.(primitive.ObjectID); ok {
+		notification.ID = oid
+	}
+	emitRealtimeNotification(notification)
+}
+
+func emitRealtimeNotification(n models.Notification) {
+	if realtimeUserHub == nil || n.UserID.IsZero() {
+		return
+	}
+	item := gin.H{
+		"id":        n.ID.Hex(),
+		"type":      n.Type,
+		"title":     n.Title,
+		"message":   n.Message,
+		"isRead":    n.IsRead,
+		"read":      n.IsRead,
+		"createdAt": n.CreatedAt,
+	}
+	if n.SourceID != nil {
+		item["sourceId"] = n.SourceID.Hex()
+	}
+	payload, err := json.Marshal(gin.H{
+		"type":    "notification:new",
+		"payload": item,
+		"sentAt":  time.Now().UnixMilli(),
+	})
+	if err != nil {
+		return
+	}
+	realtimeUserHub.BroadcastToUser(n.UserID.Hex(), payload)
 }
 
 func formatNotificationsForAPI(notifications []models.Notification) []gin.H {

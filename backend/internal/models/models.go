@@ -7,22 +7,22 @@ import (
 )
 
 type User struct {
-	ID             primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Username       string             `bson:"username" json:"username"`
-	Email          string             `bson:"email" json:"email"`
-	Password       string             `bson:"password,omitempty" json:"-"`
-	Bio            string             `bson:"bio,omitempty" json:"bio,omitempty"`
-	AvatarURL      string             `bson:"avatarUrl,omitempty" json:"avatarUrl,omitempty"`
-	CoverImageURL  string             `bson:"coverImageUrl,omitempty" json:"coverImageUrl,omitempty"`
-	Location       string             `bson:"location,omitempty" json:"location,omitempty"`
-	Website        string             `bson:"website,omitempty" json:"website,omitempty"`
-	Twitter        string             `bson:"twitter,omitempty" json:"twitter,omitempty"`
-	Instagram      string             `bson:"instagram,omitempty" json:"instagram,omitempty"`
-	NotificationPrefs NotificationPrefs `bson:"notificationPrefs,omitempty" json:"notificationPrefs,omitempty"`
-	FollowersCount int64              `bson:"followersCount" json:"followersCount"`
-	FollowingCount int64              `bson:"followingCount" json:"followingCount"`
-	CreatedAt      time.Time          `bson:"createdAt" json:"createdAt"`
-	UpdatedAt      time.Time          `bson:"updatedAt" json:"updatedAt"`
+	ID                primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Username          string             `bson:"username" json:"username"`
+	Email             string             `bson:"email" json:"email"`
+	Password          string             `bson:"password,omitempty" json:"-"`
+	Bio               string             `bson:"bio,omitempty" json:"bio,omitempty"`
+	AvatarURL         string             `bson:"avatarUrl,omitempty" json:"avatarUrl,omitempty"`
+	CoverImageURL     string             `bson:"coverImageUrl,omitempty" json:"coverImageUrl,omitempty"`
+	Location          string             `bson:"location,omitempty" json:"location,omitempty"`
+	Website           string             `bson:"website,omitempty" json:"website,omitempty"`
+	Twitter           string             `bson:"twitter,omitempty" json:"twitter,omitempty"`
+	Instagram         string             `bson:"instagram,omitempty" json:"instagram,omitempty"`
+	NotificationPrefs NotificationPrefs  `bson:"notificationPrefs,omitempty" json:"notificationPrefs,omitempty"`
+	FollowersCount    int64              `bson:"followersCount" json:"followersCount"`
+	FollowingCount    int64              `bson:"followingCount" json:"followingCount"`
+	CreatedAt         time.Time          `bson:"createdAt" json:"createdAt"`
+	UpdatedAt         time.Time          `bson:"updatedAt" json:"updatedAt"`
 }
 
 type NotificationPrefs struct {
@@ -74,24 +74,24 @@ type MarketplaceInfo struct {
 }
 
 type Artwork struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	UserID      primitive.ObjectID `bson:"userId" json:"userId"`
-	Title       string             `bson:"title" json:"title"`
-	Description string             `bson:"description" json:"description"`
-	Parameters  map[string]any     `bson:"parameters" json:"parameters"`
-	Tags        []string           `bson:"tags,omitempty" json:"tags,omitempty"`
-	ImageURL    string             `bson:"imageUrl,omitempty" json:"imageUrl,omitempty"`
-	PreviewURL  string             `bson:"previewUrl,omitempty" json:"previewUrl,omitempty"`
-	IsPublic    bool               `bson:"isPublic" json:"isPublic"`
-	IsFeatured  bool               `bson:"isFeatured" json:"isFeatured"`
-	IsVerified  bool                `bson:"isVerified" json:"isVerified"`
-	RemixOfID   *primitive.ObjectID `bson:"remixOf,omitempty" json:"remixOf,omitempty"`
-	Category     string   `bson:"category,omitempty" json:"category,omitempty"`
-	ColorBuckets []int    `bson:"colorBuckets,omitempty" json:"colorBuckets,omitempty"`
-	Metrics      ArtworkMetrics `bson:"metrics" json:"metrics"`
-	Marketplace MarketplaceInfo    `bson:"marketplace,omitempty" json:"marketplace,omitempty"`
-	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
-	UpdatedAt   time.Time          `bson:"updatedAt" json:"updatedAt"`
+	ID           primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	UserID       primitive.ObjectID  `bson:"userId" json:"userId"`
+	Title        string              `bson:"title" json:"title"`
+	Description  string              `bson:"description" json:"description"`
+	Parameters   map[string]any      `bson:"parameters" json:"parameters"`
+	Tags         []string            `bson:"tags,omitempty" json:"tags,omitempty"`
+	ImageURL     string              `bson:"imageUrl,omitempty" json:"imageUrl,omitempty"`
+	PreviewURL   string              `bson:"previewUrl,omitempty" json:"previewUrl,omitempty"`
+	IsPublic     bool                `bson:"isPublic" json:"isPublic"`
+	IsFeatured   bool                `bson:"isFeatured" json:"isFeatured"`
+	IsVerified   bool                `bson:"isVerified" json:"isVerified"`
+	RemixOfID    *primitive.ObjectID `bson:"remixOf,omitempty" json:"remixOf,omitempty"`
+	Category     string              `bson:"category,omitempty" json:"category,omitempty"`
+	ColorBuckets []int               `bson:"colorBuckets,omitempty" json:"colorBuckets,omitempty"`
+	Metrics      ArtworkMetrics      `bson:"metrics" json:"metrics"`
+	Marketplace  MarketplaceInfo     `bson:"marketplace,omitempty" json:"marketplace,omitempty"`
+	CreatedAt    time.Time           `bson:"createdAt" json:"createdAt"`
+	UpdatedAt    time.Time           `bson:"updatedAt" json:"updatedAt"`
 }
 
 type CreateArtworkRequest struct {
@@ -116,13 +116,13 @@ type Preset struct {
 }
 
 type Report struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	ReporterID  primitive.ObjectID `bson:"reporterId" json:"reporterId"`
-	TargetType  string             `bson:"targetType" json:"targetType"`
-	TargetID    primitive.ObjectID `bson:"targetId" json:"targetId"`
-	Reason      string             `bson:"reason" json:"reason"`
-	Details     string             `bson:"details,omitempty" json:"details,omitempty"`
-	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
+	ID         primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ReporterID primitive.ObjectID `bson:"reporterId" json:"reporterId"`
+	TargetType string             `bson:"targetType" json:"targetType"`
+	TargetID   primitive.ObjectID `bson:"targetId" json:"targetId"`
+	Reason     string             `bson:"reason" json:"reason"`
+	Details    string             `bson:"details,omitempty" json:"details,omitempty"`
+	CreatedAt  time.Time          `bson:"createdAt" json:"createdAt"`
 }
 
 type PasswordReset struct {
@@ -149,20 +149,20 @@ type Like struct {
 
 // ArtworkView records a unique view per viewer (user id or IP) per artwork.
 type ArtworkView struct {
-	ID         primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	ArtworkID  primitive.ObjectID `bson:"artworkId" json:"artworkId"`
-	ViewerKey  string             `bson:"viewerKey" json:"viewerKey"`
-	CreatedAt  time.Time          `bson:"createdAt" json:"createdAt"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ArtworkID primitive.ObjectID `bson:"artworkId" json:"artworkId"`
+	ViewerKey string             `bson:"viewerKey" json:"viewerKey"`
+	CreatedAt time.Time          `bson:"createdAt" json:"createdAt"`
 }
 
 type Comment struct {
-	ID         primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
-	UserID     primitive.ObjectID  `bson:"userId" json:"userId"`
-	ArtworkID  primitive.ObjectID  `bson:"artworkId" json:"artworkId"`
-	Text       string              `bson:"text" json:"text"`
-	ParentID   *primitive.ObjectID `bson:"parentId,omitempty" json:"parentId,omitempty"`
-	CreatedAt  time.Time           `bson:"createdAt" json:"createdAt"`
-	UpdatedAt  time.Time           `bson:"updatedAt,omitempty" json:"updatedAt,omitempty"`
+	ID        primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	UserID    primitive.ObjectID  `bson:"userId" json:"userId"`
+	ArtworkID primitive.ObjectID  `bson:"artworkId" json:"artworkId"`
+	Text      string              `bson:"text" json:"text"`
+	ParentID  *primitive.ObjectID `bson:"parentId,omitempty" json:"parentId,omitempty"`
+	CreatedAt time.Time           `bson:"createdAt" json:"createdAt"`
+	UpdatedAt time.Time           `bson:"updatedAt,omitempty" json:"updatedAt,omitempty"`
 }
 
 type CommentLike struct {
@@ -221,14 +221,14 @@ type RecentlyViewed struct {
 }
 
 type Notification struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	UserID    primitive.ObjectID `bson:"userId" json:"userId"`
-	Type      string             `bson:"type" json:"type"`
-	Title     string             `bson:"title" json:"title"`
-	Message   string             `bson:"message" json:"message"`
+	ID        primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	UserID    primitive.ObjectID  `bson:"userId" json:"userId"`
+	Type      string              `bson:"type" json:"type"`
+	Title     string              `bson:"title" json:"title"`
+	Message   string              `bson:"message" json:"message"`
 	SourceID  *primitive.ObjectID `bson:"sourceId,omitempty" json:"sourceId,omitempty"`
-	IsRead    bool               `bson:"isRead" json:"isRead"`
-	CreatedAt time.Time          `bson:"createdAt" json:"createdAt"`
+	IsRead    bool                `bson:"isRead" json:"isRead"`
+	CreatedAt time.Time           `bson:"createdAt" json:"createdAt"`
 }
 
 type DirectMessage struct {
@@ -241,6 +241,38 @@ type DirectMessage struct {
 	CreatedAt    time.Time            `bson:"createdAt" json:"createdAt"`
 }
 
+type Conversation struct {
+	ID                 primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
+	ParticipantIDs     []primitive.ObjectID `bson:"participantIds" json:"participantIds"`
+	ParticipantKey     string               `bson:"participantKey" json:"participantKey"`
+	LastMessageID      *primitive.ObjectID  `bson:"lastMessageId,omitempty" json:"lastMessageId,omitempty"`
+	LastMessageAt      *time.Time           `bson:"lastMessageAt,omitempty" json:"lastMessageAt,omitempty"`
+	LastMessagePreview string               `bson:"lastMessagePreview,omitempty" json:"lastMessagePreview,omitempty"`
+	LastSeq            int64                `bson:"lastSeq" json:"lastSeq"`
+	CreatedAt          time.Time            `bson:"createdAt" json:"createdAt"`
+	UpdatedAt          time.Time            `bson:"updatedAt" json:"updatedAt"`
+}
+
+type ConversationMessage struct {
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ConversationID  primitive.ObjectID `bson:"conversationId" json:"conversationId"`
+	SenderID        primitive.ObjectID `bson:"senderId" json:"senderId"`
+	Text            string             `bson:"text" json:"text"`
+	ClientMessageID string             `bson:"clientMessageId,omitempty" json:"clientMessageId,omitempty"`
+	Seq             int64              `bson:"seq" json:"seq"`
+	CreatedAt       time.Time          `bson:"createdAt" json:"createdAt"`
+	EditedAt        *time.Time         `bson:"editedAt,omitempty" json:"editedAt,omitempty"`
+	DeletedAt       *time.Time         `bson:"deletedAt,omitempty" json:"deletedAt,omitempty"`
+}
+
+type ConversationRead struct {
+	ID                 primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ConversationID     primitive.ObjectID `bson:"conversationId" json:"conversationId"`
+	UserID             primitive.ObjectID `bson:"userId" json:"userId"`
+	LastReadMessageSeq int64              `bson:"lastReadMessageSeq" json:"lastReadMessageSeq"`
+	UpdatedAt          time.Time          `bson:"updatedAt" json:"updatedAt"`
+}
+
 type SessionParticipant struct {
 	UserID   primitive.ObjectID `bson:"userId" json:"userId"`
 	Username string             `bson:"username" json:"username"`
@@ -249,27 +281,26 @@ type SessionParticipant struct {
 }
 
 type Session struct {
-	ID               primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
-	Name             string               `bson:"name" json:"name"`
-	Description      string               `bson:"description" json:"description"`
-	HostID           primitive.ObjectID   `bson:"hostId" json:"hostId"`
-	Participants     []SessionParticipant `bson:"participants" json:"participants"`
-	MaxParticipants  int                  `bson:"maxParticipants" json:"maxParticipants"`
-	IsPublic         bool                 `bson:"isPublic" json:"isPublic"`
-	IsActive         bool                 `bson:"isActive" json:"isActive"`
-	CurrentParameters map[string]any      `bson:"currentParameters,omitempty" json:"currentParameters,omitempty"`
-	CreatedAt        time.Time            `bson:"createdAt" json:"createdAt"`
-	UpdatedAt        time.Time            `bson:"updatedAt" json:"updatedAt"`
+	ID                primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
+	Name              string               `bson:"name" json:"name"`
+	Description       string               `bson:"description" json:"description"`
+	HostID            primitive.ObjectID   `bson:"hostId" json:"hostId"`
+	Participants      []SessionParticipant `bson:"participants" json:"participants"`
+	MaxParticipants   int                  `bson:"maxParticipants" json:"maxParticipants"`
+	IsPublic          bool                 `bson:"isPublic" json:"isPublic"`
+	IsActive          bool                 `bson:"isActive" json:"isActive"`
+	CurrentParameters map[string]any       `bson:"currentParameters,omitempty" json:"currentParameters,omitempty"`
+	CreatedAt         time.Time            `bson:"createdAt" json:"createdAt"`
+	UpdatedAt         time.Time            `bson:"updatedAt" json:"updatedAt"`
 }
 
 type Purchase struct {
-	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	ArtworkID       primitive.ObjectID `bson:"artworkId" json:"artworkId"`
-	BuyerID         primitive.ObjectID `bson:"buyerId" json:"buyerId"`
-	License         string             `bson:"license" json:"license"`
-	Amount          float64            `bson:"amount" json:"amount"`
-	TransactionRef  string             `bson:"transactionRef,omitempty" json:"transactionRef,omitempty"`
-	IdempotencyKey  string             `bson:"idempotencyKey,omitempty" json:"idempotencyKey,omitempty"`
-	CreatedAt       time.Time          `bson:"createdAt" json:"createdAt"`
+	ID             primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ArtworkID      primitive.ObjectID `bson:"artworkId" json:"artworkId"`
+	BuyerID        primitive.ObjectID `bson:"buyerId" json:"buyerId"`
+	License        string             `bson:"license" json:"license"`
+	Amount         float64            `bson:"amount" json:"amount"`
+	TransactionRef string             `bson:"transactionRef,omitempty" json:"transactionRef,omitempty"`
+	IdempotencyKey string             `bson:"idempotencyKey,omitempty" json:"idempotencyKey,omitempty"`
+	CreatedAt      time.Time          `bson:"createdAt" json:"createdAt"`
 }
-

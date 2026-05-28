@@ -9,6 +9,7 @@ import React, {
 import { useAuth } from './useAuth';
 import api from '../services/api';
 import { invalidateDedupKey } from '../services/requestDedup';
+import { getAuthHeader } from '../services/api';
 
 const NOTIFICATIONS_KEY = 'me/notifications';
 
@@ -115,6 +116,58 @@ const useNotificationsState = (): NotificationsContextValue => {
       return prev.filter((n) => n.id !== notificationId && n._id !== notificationId);
     });
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let active = true;
+    let socket: WebSocket | null = null;
+    let retryTimer: number | null = null;
+
+    const connect = async () => {
+      const token = await getAuthHeader();
+      if (!active) return;
+      const base = window.location.origin.replace(/^http/, 'ws');
+      const url = token ? `${base}/ws/events?token=${encodeURIComponent(token)}` : `${base}/ws/events`;
+      socket = new WebSocket(url);
+
+      socket.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          if (data?.type === 'notification:new' && data?.payload) {
+            addNotification(data.payload);
+          }
+          if (data?.type === 'message:new' && data?.payload) {
+            window.dispatchEvent(new CustomEvent('realtime:message', { detail: data.payload }));
+          }
+          if (data?.type === 'message.read' && data?.payload) {
+            window.dispatchEvent(new CustomEvent('realtime:message-read', { detail: data.payload }));
+          }
+          if (data?.type === 'conversation.updated' && data?.payload) {
+            window.dispatchEvent(
+              new CustomEvent('realtime:conversation-updated', { detail: data.payload })
+            );
+          }
+        } catch {
+          // Ignore malformed payloads
+        }
+      };
+
+      socket.onclose = () => {
+        if (!active) return;
+        retryTimer = window.setTimeout(connect, 3000);
+      };
+    };
+
+    connect().catch(() => {});
+
+    return () => {
+      active = false;
+      if (retryTimer) window.clearTimeout(retryTimer);
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
+    };
+  }, [currentUser, addNotification]);
 
   const showToast = useCallback(
     (message, type = 'info') => {
