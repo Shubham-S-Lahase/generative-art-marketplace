@@ -16,6 +16,7 @@ import NotificationSystem from './components/NotificationSystem';
 import NotificationBell from './components/NotificationBell';
 import ArtworkDetail from './components/ArtworkDetail';
 import DirectMessages from './components/DirectMessages';
+import ActivityFeed from './components/ActivityFeed';
 import { User, LogOut } from 'lucide-react';
 
 const App = () => {
@@ -28,6 +29,7 @@ const App = () => {
             <Routes>
               <Route path="/" element={<Gallery />} />
               <Route path="/create" element={<ArtCreator />} />
+              <Route path="/activity" element={<ActivityFeed />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/sessions" element={<LiveSessions />} />
               <Route path="/marketplace" element={<Marketplace />} />
@@ -81,6 +83,9 @@ const Header = () => {
           </Link>
           <Link to="/sessions" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
             Live
+          </Link>
+          <Link to="/activity" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            Activity
           </Link>
           {currentUser && (
             <>

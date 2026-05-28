@@ -271,6 +271,10 @@ const api = {
     const res = await client.get('/discovery/popular-searches', { params: { limit } });
     return res.data;
   },
+  async getActivityFeed(limit = 30) {
+    const res = await client.get('/discovery/activity', { params: { limit } });
+    return res.data;
+  },
   async recordSearch(payload: { query?: string; tags?: string; category?: string }) {
     const res = await client.post('/discovery/search-log', payload);
     return res.data;

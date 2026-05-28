@@ -266,3 +266,15 @@ export interface DirectMessage {
   isMine?: boolean;
   isRead?: boolean;
 }
+
+export interface ActivityEvent {
+  type: 'artwork' | 'like' | 'comment' | 'follow' | string;
+  createdAt: string;
+  actorId?: string;
+  actor?: string;
+  targetId?: string;
+  target?: string;
+  artworkId?: string;
+  artwork?: string;
+  message: string;
+}

@@ -34,6 +34,7 @@ func Register(r *gin.Engine, db *database.MongoDB, wsHub *websocket.Hub, cfg *co
 	api.GET("/health", miscHandler.Health)
 	api.GET("/discovery/trending-tags", discoveryHandler.GetTrendingTags)
 	api.GET("/discovery/popular-searches", discoveryHandler.GetPopularSearches)
+	api.GET("/discovery/activity", discoveryHandler.GetActivityFeed)
 	api.POST("/discovery/search-log", middleware.OptionalAuthMiddleware(cfg), discoveryHandler.RecordSearch)
 
 	// Auth
