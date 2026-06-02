@@ -1,0 +1,65 @@
+Artwork management
+Bulk edit / delete / publish
+Version history
+Duplicate detection
+Batch export
+Watermarking on export
+Server-side generative templates marketplace
+
+Marketplace
+Shopping cart (multi-item checkout)
+Offers / negotiation
+Auctions
+Subscription tiers
+Royalties / commission splits
+Print-on-demand integration
+
+Analytics (advanced)
+User growth charts
+Revenue over time charts
+Popular posting times
+Geo breakdown
+CSV/PDF export
+
+UX & browsing
+Keyboard shortcuts
+Infinite scroll toggle (vs fixed pagination)
+Side-by-side artwork comparison
+Before/after slider
+Zoom/pan on gallery images
+
+Content safety
+NSFW tagging / filter
+Auto-moderation
+User verification workflow (in main app, not separate admin)
+
+Collaboration & editorial
+Multi-artist collab on one piece
+Contests / voting
+“Featured artist” editorial section (beyond isFeatured flag)
+
+Profile
+Custom profile themes
+Badges / achievements
+Portfolio mode / CV export
+
+Notifications (advanced)
+Push notifications
+Quiet hours
+Grouped notification threads
+(Basic in-app notifications + 60s poll + realtime events exist; not these.)
+
+Platform / infra
+Caching layer (Redis, etc.)
+Email notifications (transactional)
+2FA
+API usage stats for users
+SSR / sitemap / RSS
+AR/VR viewers
+Metadata embedding in exported files
+d3 visualizations (package present, unused)
+SEO: per-route dynamic meta, sitemap, RSS for new artworks
+
+Social (remaining)
+Share to Twitter / Facebook (beyond native share)
+Albums separate from bookmarks
