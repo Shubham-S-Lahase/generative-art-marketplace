@@ -32,6 +32,8 @@ Content safety
 NSFW tagging / filter
 Auto-moderation
 User verification workflow (in main app, not separate admin)
+Albums vs bookmarks — clear product split.
+NSFW filter — safety baseline for a public gallery.
 
 Collaboration & editorial
 Multi-artist collab on one piece
